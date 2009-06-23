@@ -1,0 +1,6 @@
+0.1:
+* command line interface
+* curses interface
+* list of active autossh instances
+* associated active ssh connections
+
