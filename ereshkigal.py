@@ -382,7 +382,7 @@ if __name__ == "__main__":
     import sys
 
     # CURSES
-    if sys.argv[1] == "--curses":
+    if len(sys.argv) > 1 and sys.argv[1] == "--curses":
 	import curses
 	import traceback
 
