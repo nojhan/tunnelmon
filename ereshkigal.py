@@ -396,61 +396,92 @@ class monitorCurses:
 
 if __name__ == "__main__":
     import sys
+    from optparse import OptionParser
 
-    # CURSES
-    if len(sys.argv) > 1:
-	if  sys.argv[1] == "--curses":
-		import curses
-		import traceback
+    usage = """Usage: %prog [options]
+A user interface to monitor existing SSH tunnel that are managed with autossh.
 
-		try:
-		    scr = curses.initscr()
-		    curses.start_color()
+Called without options, ereshkigal displays 
+"""
+    parser = OptionParser(usage=usage)
 
-		    # 0:black, 1:red, 2:green, 3:yellow, 4:blue, 5:magenta, 6:cyan, 7:white
-		    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
-		    curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
-		    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-		    curses.init_pair(4, curses.COLOR_BLUE, curses.COLOR_BLACK)
-		    curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
-		    curses.init_pair(6, curses.COLOR_CYAN, curses.COLOR_BLACK)
-		    curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
-		    curses.init_pair(8, curses.COLOR_WHITE, curses.COLOR_GREEN)
-		    curses.init_pair(9, curses.COLOR_WHITE, curses.COLOR_BLUE)
+    parser.add_option("-c", "--curses", dest="curses", default=False,
+	    help="Start the user interface in text mode")
+    parser.add_option("-n", "--connections", dest="connections", default=False,
+	    help="Display only the list of SSH connections related to a tunnel")
+    parser.add_option("-a", "--autossh", dest="autossh", default=False,
+	    help="Display only the list of autossh processes")
 
-		    curses.noecho()
-		    curses.cbreak()
-		    scr.keypad(1)
+    (options, args) = parser.parse_args()
 
-		    mc = monitorCurses( scr )
-		    mc()
+    #if len(options) > 1:
+    #	parser.error("options are mutually exclusive")
 
-		    scr.keypad(0)
-		    curses.echo()
-		    curses.nocbreak()
-		    curses.endwin()
 
-		except:
-		    scr.keypad(0)
-		    curses.echo()
-		    curses.nocbreak()
-		    curses.endwin()
-		    traceback.print_exc()
+    if  options.curses:
+	    import curses
+	    import traceback
 
-	elif sys.argv[1] == "--connections":
-		tm = AutoSSHTunnelMonitor()
-		con = tm.get_connections()
-		for c in con:
-			print con
-	
-	elif sys.argv[1] == "--autossh":
-		tm = AutoSSHTunnelMonitor()
-		auto = tm.get_autossh_instances()
-		for i in auto:
-			print auto
+	    try:
+		scr = curses.initscr()
+		curses.start_color()
 
-    # CLI
+		# 0:black, 1:red, 2:green, 3:yellow, 4:blue, 5:magenta, 6:cyan, 7:white
+		curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
+		curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
+		curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+		curses.init_pair(4, curses.COLOR_BLUE, curses.COLOR_BLACK)
+		curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+		curses.init_pair(6, curses.COLOR_CYAN, curses.COLOR_BLACK)
+		curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
+		curses.init_pair(8, curses.COLOR_WHITE, curses.COLOR_GREEN)
+		curses.init_pair(9, curses.COLOR_WHITE, curses.COLOR_BLUE)
+
+		curses.noecho()
+		curses.cbreak()
+		scr.keypad(1)
+
+		mc = monitorCurses( scr )
+		mc()
+
+		scr.keypad(0)
+		curses.echo()
+		curses.nocbreak()
+		curses.endwin()
+
+	    except:
+		scr.keypad(0)
+		curses.echo()
+		curses.nocbreak()
+		curses.endwin()
+		traceback.print_exc()
+
+
+    elif options.connections:
+	    tm = AutoSSHTunnelMonitor()
+	    con = tm.get_connections()
+	    for c in con:
+		    print con
+
+
+    elif options.autossh:
+	    tm = AutoSSHTunnelMonitor()
+	    auto = tm.get_autossh_instances()
+	    for i in auto:
+		    print auto
+
+
     else:
 	tm = AutoSSHTunnelMonitor()
+	tm.update()
 	print tm
 
+
+#
+# In Mesopotamian mythology, Ereshkigal (lit. "great lady under earth")
+# was the goddess of Irkalla, the land of the dead or underworld.
+#
+# Thus, she knows a lot about tunnels...
+#
+# http://en.wikipedia.org/wiki/Ereshkigal
+#
