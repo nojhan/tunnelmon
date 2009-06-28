@@ -398,19 +398,17 @@ if __name__ == "__main__":
     import sys
     from optparse import OptionParser
 
-    usage = """Usage: %prog [options]
+    usage = """%prog [options]
 A user interface to monitor existing SSH tunnel that are managed with autossh.
-
-Called without options, ereshkigal displays 
-"""
+Called without options, ereshkigal displays a list of tunnels on the standard output."""
     parser = OptionParser(usage=usage)
 
-    parser.add_option("-c", "--curses", dest="curses", default=False,
-	    help="Start the user interface in text mode")
-    parser.add_option("-n", "--connections", dest="connections", default=False,
-	    help="Display only the list of SSH connections related to a tunnel")
-    parser.add_option("-a", "--autossh", dest="autossh", default=False,
-	    help="Display only the list of autossh processes")
+    parser.add_option("-c", "--curses", action="store_true", dest="curses", default=False,
+	    help="start the user interface in text mode")
+    parser.add_option("-n", "--connections", action="store_true", dest="connections", default=False,
+	    help="display only SSH connections related to a tunnel")
+    parser.add_option("-a", "--autossh", action="store_true", dest="autossh", default=False,
+	    help="display only the list of autossh processes")
 
     (options, args) = parser.parse_args()
 
