@@ -240,7 +240,7 @@ class AutoSSHTunnelMonitor(list):
 	"""Bind autossh process to the related ssh connections, according to the pid"""
 	for t in tunnels:
 	    for i in autosshs:
-		if i['pid'] == ppid:
+		if i['pid'] == t['autossh_pid']:
 		    # add to the list of tunnels of the AutoSSHInstance instance
 		    i['tunnels'] += [t]
 
