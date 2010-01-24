@@ -25,6 +25,7 @@
 #################################################################################################
 
 import os
+import subprocess
 
 # fort sorting dictionaries easily
 from operator import itemgetter
@@ -146,7 +147,13 @@ class AutoSSHTunnelMonitor(list):
 	"""Gather and parse autossh processes"""
 
 	# call the command
-	status = os.popen3( self.ps_cmd )
+	#status = os.popen3( self.ps_cmd )
+
+	p = subprocess.Popen( self.ps_cmd, shell=True,
+          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+
+	status = (p.stdin, p.stdout, p.stderr)
+
 
 	# list of processes with the "autossh" string
 	status_list = [ps for ps in status[1].readlines() if "autossh" in ps]
@@ -176,8 +183,13 @@ class AutoSSHTunnelMonitor(list):
     def get_connections(self):
 	"""Gather and parse ssh connections related to a tunnel"""
 
-	status = os.popen3( self.network_cmd )
-	
+	#status = os.popen3( self.network_cmd )
+
+	p = subprocess.Popen( self.network_cmd, shell=True,
+          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+
+	status = (p.stdin, p.stdout, p.stderr)
+
 	status_list = status[1].readlines()
 	
 	list = [i.split() for i in status_list if 'ssh' in i]
