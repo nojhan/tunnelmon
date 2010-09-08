@@ -4,18 +4,18 @@
 # Ereshkigal is an AutoSSH tunnel monitor
 # It gives a curses user interface to monitor existing SSH tunnel that are managed with autossh.
 #
-#	This program is free software: you can redistribute it and/or modify
-#	it under the terms of the GNU General Public License as published by
-#	the Free Software Foundation, either version 3 of the License, or
-#	(at your option) any later version.
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
 #
-#	This program is distributed in the hope that it will be useful,
-#	but WITHOUT ANY WARRANTY; without even the implied warranty of
-#	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#	GNU General Public License for more details.
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
 #
-#	You should have received a copy of the GNU General Public License
-#	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Author : Johann "nojhan" Dréo <nojhan@gmail.com>
 #
@@ -31,18 +31,9 @@ import subprocess
 from operator import itemgetter
 
 class SSHTunnel(dict):
-	"""A dictionary that stores an SSH connection related to a tunnel"""
+    """A dictionary that stores an SSH connection related to a tunnel"""
 
-    def __init__(self, 
-        local_address = '1.1.1.1',
-        local_port = 0,
-        foreign_address = '1.1.1.1',
-        foreign_port = 0, 
-        target_host = "Unknown",
-        status = 'UNKNOWN',
-        ssh_pid = 0,
-        autossh_pid = 0
-        ):
+    def __init__(self, local_address = '1.1.1.1', local_port = 0, foreign_address = '1.1.1.1', foreign_port = 0, target_host = "Unknown", status = 'UNKNOWN', ssh_pid = 0, autossh_pid = 0 ):
 
         # informations available with netstat
         self['local_address'] = local_address
@@ -69,7 +60,7 @@ class SSHTunnel(dict):
 
 
 class AutoSSHInstance(dict):
-	"""A dictionary that stores an autossh process"""
+    """A dictionary that stores an autossh process"""
 
     def __init__(self, pid = 0, local_port = 0, via_host="Unknown", target_host = "Unknown",foreign_port = 0):
 
@@ -98,7 +89,7 @@ class AutoSSHInstance(dict):
 
 
 class AutoSSHTunnelMonitor(list):
-	"""List of existing autossh processes and ssh connections"""
+    """List of existing autossh processes and ssh connections"""
 
     def __init__(self):
         """Warning: the initialization does not gather tunnels informations, use update() to do so"""
@@ -150,19 +141,19 @@ class AutoSSHTunnelMonitor(list):
         # use the operator module
         self[:] = sorted( self, key=itemgetter( key ) )
 
-	def get_autossh_instances(self):
-		"""Gather and parse autossh processes"""
+    def get_autossh_instances(self):
+        """Gather and parse autossh processes"""
 
     def get_autossh_instances(self):
         """Gather and parse autossh processes"""
 
         # call the command
-	#status = os.popen3( self.ps_cmd )
+        #status = os.popen3( self.ps_cmd )
 
-	p = subprocess.Popen( self.ps_cmd, shell=True,
-          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+        p = subprocess.Popen( self.ps_cmd, shell=True,
+              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
 
-	status = (p.stdin, p.stdout, p.stderr)
+        status = (p.stdin, p.stdout, p.stderr)
 
 
         # list of processes with the "autossh" string
@@ -201,13 +192,13 @@ class AutoSSHTunnelMonitor(list):
     def get_connections(self):
         """Gather and parse ssh connections related to a tunnel"""
 
-	#status = os.popen3( self.network_cmd )
+        #status = os.popen3( self.network_cmd )
 
-	p = subprocess.Popen( self.network_cmd, shell=True,
-          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+        p = subprocess.Popen( self.network_cmd, shell=True,
+              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
 
-	status = (p.stdin, p.stdout, p.stderr)
-        
+        status = (p.stdin, p.stdout, p.stderr)
+            
         status_list = status[1].readlines()
         
         list = [i.split() for i in status_list if 'ssh' in i]
@@ -274,23 +265,7 @@ class AutoSSHTunnelMonitor(list):
                     # add to the list of tunnels of the AutoSSHInstance instance
                     i['tunnels'] += [t]
 
-        return autosshs
-
-			# instanciation
-			tunnels += [ SSHTunnel( local_addr, local_port, foreign_addr, foreign_port, autohost, status, sshpid, ppid ) ]
-
-		return tunnels
-
-
-	def bind_tunnels(self, autosshs, tunnels):
-		"""Bind autossh process to the related ssh connections, according to the pid"""
-		for t in tunnels:
-			for i in autosshs:
-				if i['pid'] == t['autossh_pid']:
-					# add to the list of tunnels of the AutoSSHInstance instance
-					i['tunnels'] += [t]
-
-		return autosshs
+        return tunnels
 
 
 #################################################################################################
@@ -302,7 +277,7 @@ import time
 import signal
 
 class monitorCurses:
-	"""Textual user interface to display up-to-date informations about current tunnels"""
+    """Textual user interface to display up-to-date informations about current tunnels"""
 
     def __init__(self, scr):
         # curses screen
@@ -358,6 +333,8 @@ class monitorCurses:
                 
             if kc != -1: # if keypress
                 pass
+
+            ch = chr(0)
 
             if 0 < kc < 256: # if ascii key
                 # ascii character from the keycode
@@ -516,8 +493,8 @@ class monitorCurses:
 
         self.scr.clrtoeol()
 
-	def add_autossh_info( self, key, line ):
-		"""Add an information of an autossh process, in the configured color"""
+    def add_autossh_info( self, key, line ):
+        """Add an information of an autossh process, in the configured color"""
 
     def add_autossh_info( self, key, line ):
         """Add an information of an autossh process, in the configured color"""
@@ -538,14 +515,14 @@ class monitorCurses:
         self.scr.addstr( '\t', curses.color_pair(colors[key])  )
 
 if __name__ == "__main__":
-	import sys
-	from optparse import OptionParser
+    import sys
+    from optparse import OptionParser
 
-	usage = """%prog [options]
-A user interface to monitor existing SSH tunnel that are managed with autossh.
-Called without options, ereshkigal displays a list of tunnels on the standard output.
-Note: Users other than root will not see tunnels connections"""
-	parser = OptionParser(usage=usage)
+    usage = """%prog [options]
+    A user interface to monitor existing SSH tunnel that are managed with autossh.
+    Called without options, ereshkigal displays a list of tunnels on the standard output.
+    Note: Users other than root will not see tunnels connections"""
+    parser = OptionParser(usage=usage)
 
     parser.add_option("-c", "--curses", action="store_true", dest="curses", default=False,
         help="start the user interface in text mode")
@@ -554,7 +531,7 @@ Note: Users other than root will not see tunnels connections"""
     parser.add_option("-a", "--autossh", action="store_true", dest="autossh", default=False,
         help="display only the list of autossh processes")
 
-	(options, args) = parser.parse_args()
+    (options, args) = parser.parse_args()
 
     # unfortunately, options class has no __len__ method in python 2.4.3 (bug?)
     #if len(options) > 1:
