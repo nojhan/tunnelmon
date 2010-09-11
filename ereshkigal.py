@@ -521,7 +521,8 @@ if __name__ == "__main__":
     usage = """%prog [options]
     A user interface to monitor existing SSH tunnel that are managed with autossh.
     Called without options, ereshkigal displays a list of tunnels on the standard output.
-    Note: Users other than root will not see tunnels connections"""
+    Note: Users other than root will not see tunnels connections.
+    Version 0.3"""
     parser = OptionParser(usage=usage)
 
     parser.add_option("-c", "--curses", action="store_true", dest="curses", default=False,
