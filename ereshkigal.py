@@ -249,35 +249,42 @@ class AutoSSHTunnelMonitor(list):
             # ssh cmd line, got from /proc
             f = open( '/proc/' + str(sshpid) + '/cmdline' )
             cmd = f.readlines()[0]
+            f.close()
             logging.debug("SSH command: %s" % cmd)
 
             # if not an ssh tunnel command
-            if ('-L' not in cmd) and (':' not in cmd):
+            if ('-L' not in cmd) or (':' not in cmd):
                 # do not list it
                 logging.debug("Not a tunnel command")
                 continue
 
-            f.close()
             logging.debug("Is a tunnel command")
 
             # autossh parent process
-            f = open( '/proc/' + str(sshpid) + '/status' )
+            ppidf = '/proc/' + str(sshpid) + '/status'
+            logging.debug("Parse %s" % ppidf)
+            f = open( ppidf )
 
             # filter the parent pid
             lpid = [i for i in f.readlines() if 'PPid' in i]
-
             f.close()
+            logging.debug("PPid: %s" % lpid)
 
             # parsing
             ppid = int(lpid[0].split(':')[1].strip())
+            logging.debug("Parsed PPid: %s" % ppid)
 
             # command line of the parent process
-            f = open( '/proc/' + str(ppid) + '/cmdline' )
+            pcmdf = '/proc/' + str(ppid) + '/cmdline' 
+            logging.debug("Parse %s" % pcmdf)
+            f = open( pcmdf )
 
             # exclude the port
-            autohost = f.readlines()[0].split(':')[1]
-
+            content = f.readlines()
+            logging.debug("Cmd: %s" % content[0])
+            autohost = content[0].split(':')[1]
             f.close()
+            logging.debug("Parsed cmd without port: %s" % autohost)
 
             # instanciation
             tunnels.append( SSHTunnel( local_addr, local_port, foreign_addr, foreign_port, autohost, status, sshpid, ppid ) )
