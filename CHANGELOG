@@ -1,3 +1,7 @@
+0:4:
+* adds IPv6 support
+* bugfixes
+
 0.3:
 * added a via_host field (show on which host the tunnel is build)
 * don't try to show connections if the user is not root
