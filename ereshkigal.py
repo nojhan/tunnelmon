@@ -17,7 +17,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-# Author : Johann "nojhan" Dréo <nojhan@gmail.com>
+# Author : nojhan <nojhan@nojhan.net>
 #
 
 #################################################################################################
@@ -26,6 +26,7 @@
 
 import os
 import subprocess
+import logging
 
 # fort sorting dictionaries easily
 from operator import itemgetter
@@ -59,7 +60,7 @@ class SSHTunnel(dict):
             )
 
 
-class AutoSSHInstance(dict):
+class AutoSSHprocess(dict):
     """A dictionary that stores an autossh process"""
 
     def __init__(self, pid = 0, local_port = 0, via_host="Unknown", target_host = "Unknown",foreign_port = 0):
@@ -84,7 +85,7 @@ class AutoSSHInstance(dict):
         # list of tunnels linked to this process
         for t in self['tunnels']:
             repr += "\n\t↳ %s" % t
-        
+
         return repr
 
 
@@ -109,11 +110,16 @@ class AutoSSHTunnelMonitor(list):
         """Gather and parse informations from the operating system"""
         # autossh processes
         autosshs = self.get_autossh_instances()
+        logging.debug("Autossh processes: %s" % autosshs)
 
         # ssh connections related to a tunnel
         connections = self.get_connections()
+        logging.debug("SSH connections related to a tunnel: %s" % connections)
 
-        # bind existing connections to autossh processes
+        # Bind existing connections to autossh processes.
+        # Thus the instance is a list of AutoSSHinstance instances,
+        # each of those instances having a 'tunnels' key,
+        # hosting the corresponding list of tunnel connections.
         self[:] = self.bind_tunnels(autosshs, connections)
 
         # sort on a given key
@@ -122,27 +128,25 @@ class AutoSSHTunnelMonitor(list):
 
     def __repr__(self):
         repr = "PID\tINPORT\tVIA\tHOST\tOUTPORT"
-        
+
         # only root can see tunnels connections
         if os.geteuid() == 0:
             repr += "\tTUNNELS"
 
         repr += '\n'
-        
+
         # print each item in the list
         for t in self:
             repr += "%s\n" % t
 
         return repr
-        
+
 
     def sort_on(self, key = 'autossh_pid' ):
         """Sort items on a given key"""
         # use the operator module
         self[:] = sorted( self, key=itemgetter( key ) )
 
-    def get_autossh_instances(self):
-        """Gather and parse autossh processes"""
 
     def get_autossh_instances(self):
         """Gather and parse autossh processes"""
@@ -158,16 +162,18 @@ class AutoSSHTunnelMonitor(list):
 
         # list of processes with the "autossh" string
         status_list = [ps for ps in status[1].readlines() if "autossh" in ps]
+        logging.debug("Processes containing 'autossh': %s" % status_list)
 
         # split the process line if it contains a "-L"
-        list = [i.split() for i in status_list if '-L' in i]
+        cmds = [i.split() for i in status_list if '-L' in i]
 
         autosshs = []
 
-        for cmd in list:
-            
+        for cmd in cmds:
+
             # split the command in order to obtain arguments to the -L option
             args = [i.strip('-').strip('-').strip('L') for i in cmd if '-L' in i][0].split(':')
+            logging.debug("Split around -L: %s" % args)
 
             pid = int(cmd[0])
             local_port = int(args[0])
@@ -182,11 +188,25 @@ class AutoSSHTunnelMonitor(list):
                     break
 
 
-            auto = AutoSSHInstance( pid, local_port, via_host, target_host, foreign_port )
+            auto = AutoSSHprocess( pid, local_port, via_host, target_host, foreign_port )
+            logging.debug("Add AutoSSHprocess: %s" % auto)
 
-            autosshs += [auto]
+            autosshs.append( auto )
 
         return autosshs
+
+    def parse_addr_port(self, addr_port):
+        if len(addr_port) == 2: # ipv4
+            addr = addr_port[0]
+            logging.debug("IPv4 address: %s" % addr)
+            port = int(addr_port[1])
+            logging.debug("IPv4 port: %s" % port)
+        else: # ipv6
+            addr = ":".join(addr_port[:-1])
+            logging.debug("IPv6 address: %s" % addr)
+            port = int(addr_port[-1])
+            logging.debug("IPv6 port: %s" % port)
+        return addr,port
 
 
     def get_connections(self):
@@ -198,39 +218,47 @@ class AutoSSHTunnelMonitor(list):
               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
 
         status = (p.stdin, p.stdout, p.stderr)
-            
+
         status_list = status[1].readlines()
-        
-        list = [i.split() for i in status_list if 'ssh' in i]
-        
+        logging.debug("%i active connections" % len(status_list))
+
+        cons = [i.split() for i in status_list if 'ssh' in i]
+
         tunnels = []
 
-        for con in list:
+        for con in cons:
+            logging.debug("Candidate connection: %s" % con)
+            # netstat format:
+            # Proto Recv-Q Send-Q Adresse locale          Adresse distante        Etat       PID/Program name
 
             # local infos
             local = con[3].split(':')
-            local_addr = local[0] 
-            local_port = int(local[1])
+            logging.debug("local infos: %s" % local)
+            local_addr, local_port = self.parse_addr_port(local)
 
             # foreign infos
             foreign = con[4].split(':')
-            foreign_addr = foreign[0]
-            foreign_port = int(foreign[1])
+            foreign_addr, foreign_port = self.parse_addr_port(foreign)
 
             status = con[5]
+            logging.debug("Connection status: %s" % status)
 
             sshpid = int( con[6].split('/')[0] )
+            logging.debug("SSH PID: %s" % sshpid)
 
             # ssh cmd line, got from /proc
             f = open( '/proc/' + str(sshpid) + '/cmdline' )
             cmd = f.readlines()[0]
+            logging.debug("SSH command: %s" % cmd)
 
             # if not an ssh tunnel command
             if ('-L' not in cmd) and (':' not in cmd):
                 # do not list it
+                logging.debug("Not a tunnel command")
                 continue
 
             f.close()
+            logging.debug("Is a tunnel command")
 
             # autossh parent process
             f = open( '/proc/' + str(sshpid) + '/status' )
@@ -252,7 +280,7 @@ class AutoSSHTunnelMonitor(list):
             f.close()
 
             # instanciation
-            tunnels += [ SSHTunnel( local_addr, local_port, foreign_addr, foreign_port, autohost, status, sshpid, ppid ) ]
+            tunnels.append( SSHTunnel( local_addr, local_port, foreign_addr, foreign_port, autohost, status, sshpid, ppid ) )
 
         return tunnels
 
@@ -262,10 +290,10 @@ class AutoSSHTunnelMonitor(list):
         for t in tunnels:
             for i in autosshs:
                 if i['pid'] == t['autossh_pid']:
-                    # add to the list of tunnels of the AutoSSHInstance instance
-                    i['tunnels'] += [t]
+                    # add to the list of tunnels of the AutoSSHprocess instance
+                    i['tunnels'].append( t )
 
-        return tunnels
+        return autosshs
 
 
 #################################################################################################
@@ -297,7 +325,7 @@ class monitorCurses:
 
         self.update_delay = 1 # seconds of delay between two updates
         self.ui_delay = 0.05 # seconds between two loops
-        
+
         # colors
         self.colors_autossh = {'pid':0, 'local_port':3, 'via_host':2, 'target_host':2, 'foreign_port':3, 'tunnels_nb':4, 'tunnels_nb_none':1}
         self.colors_highlight = {'pid':9, 'local_port':9, 'via_host':9, 'target_host':9, 'foreign_port':9, 'tunnels_nb':9, 'tunnels_nb_none':9}
@@ -315,6 +343,7 @@ class monitorCurses:
 
         # first update counter
         last_update = time.clock()
+        last_state = None
 
         # infinite loop
         while(1):
@@ -328,9 +357,18 @@ class monitorCurses:
                 self.tm.update()
                 # reset the counter
                 last_update = time.time()
-            
+
+                state = "%s" % self.tm
+                if state != last_state:
+                    logging.debug("----- Time of screen update: %s -----" % time.time())
+                    logging.debug("State of tunnels:\n%s" % self.tm)
+                    last_state = state
+                else:
+                    logging.debug('.')
+
+
             kc = self.scr.getch() # keycode
-                
+
             if kc != -1: # if keypress
                 pass
 
@@ -342,31 +380,38 @@ class monitorCurses:
 
             # Quit
             if ch in 'Qq':
+                logging.debug("Key pushed: Q")
                 break
 
             # Reload related autossh tunnels
             elif ch in 'rR':
+                logging.debug("Key pushed: R")
                 # if a pid is selected
                 if self.cur_pid != -1:
                     # send the SIGUSR1 signal
                     # autossh performs a reload of existing tunnels that it manages
+                    logging.debug("SIGUSR1 on PID: %i" % self.cur_pid)
                     os.kill( self.cur_pid, signal.SIGUSR1 )
 
             # Kill autossh process
             elif ch in 'kK':
+                logging.debug("Key pushed: K")
                 if self.cur_pid != -1:
                     # send a SIGKILL
                     # the related process is stopped
                     # FIXME SIGTERM or SIGKILL ?
+                    logging.debug("SIGKILL on PID: %i" % self.cur_pid)
                     os.kill( self.cur_pid, signal.SIGKILL )
 
             # Switch to show ssh connections
             # only available for root
             elif ch in 'tT' and os.getuid() == 0:
+                logging.debug("Key pushed: T")
                 self.show_tunnels = not self.show_tunnels
 
-            # key down
+            # key pushed
             elif kc == curses.KEY_DOWN:
+                logging.debug("Key pushed: downed")
                 # if not the end of the list
                 if self.cur_line < len(self.tm)-1:
                     self.cur_line += 1
@@ -375,6 +420,7 @@ class monitorCurses:
 
             # key up
             elif kc == curses.KEY_UP:
+                logging.debug("Key pushed: up")
                 if self.cur_line > -1:
                     self.cur_line -= 1
                     self.cur_pid = int(self.tm[self.cur_line]['pid'])
@@ -426,7 +472,7 @@ class monitorCurses:
         for l in xrange(len(self.tm)):
             # add a line for the l-th autossh process
             self.add_autossh( l )
-            
+
             # if one want to show connections
             if self.show_tunnels and os.getuid() == 0:
                 self.add_tunnel( l )
@@ -442,7 +488,7 @@ class monitorCurses:
         # for each connections related to te line-th autossh process
         for t in self.tm[line]['tunnels']:
             self.scr.addstr( '\n\t* ' )
-            
+
             self.scr.addstr( str( t['ssh_pid'] ), curses.color_pair(colors['ssh_pid'] ) )
             self.scr.addstr( '\t' )
             self.scr.addstr( str( t['local_address'] ) , curses.color_pair(colors['local_address'] ))
@@ -452,7 +498,7 @@ class monitorCurses:
             self.scr.addstr( str( t['foreign_address'] ) , curses.color_pair(colors['foreign_address'] ))
             self.scr.addstr( ':' )
             self.scr.addstr( str( t['foreign_port'] ) , curses.color_pair(colors['foreign_port'] ))
-            
+
             self.scr.addstr( '\t' )
 
             color = self.colors_ssh['status']
@@ -474,7 +520,7 @@ class monitorCurses:
         self.add_autossh_info('via_host', line)
         self.add_autossh_info('target_host', line)
         self.add_autossh_info('foreign_port', line)
-        
+
         nb = len(self.tm[line]['tunnels'] )
         if nb > 0:
             # for each connection related to this process
@@ -496,9 +542,6 @@ class monitorCurses:
     def add_autossh_info( self, key, line ):
         """Add an information of an autossh process, in the configured color"""
 
-    def add_autossh_info( self, key, line ):
-        """Add an information of an autossh process, in the configured color"""
-
         colors = self.colors_autossh
         # if the line is selected
         if self.cur_line == line:
@@ -514,6 +557,8 @@ class monitorCurses:
         self.scr.addstr( txt, curses.color_pair(colors[key]) )
         self.scr.addstr( '\t', curses.color_pair(colors[key])  )
 
+
+
 if __name__ == "__main__":
     import sys
     from optparse import OptionParser
@@ -525,21 +570,57 @@ if __name__ == "__main__":
     Version 0.3"""
     parser = OptionParser(usage=usage)
 
-    parser.add_option("-c", "--curses", action="store_true", dest="curses", default=False,
-        help="start the user interface in text mode")
-    parser.add_option("-n", "--connections", action="store_true", dest="connections", default=False,
-        help="display only SSH connections related to a tunnel (only available as root)")
-    parser.add_option("-a", "--autossh", action="store_true", dest="autossh", default=False,
-        help="display only the list of autossh processes")
+    parser.add_option("-c", "--curses",
+        action="store_true", default=False,
+        help="Start the user interface in text mode.")
+
+    parser.add_option("-n", "--connections",
+        action="store_true", default=False,
+        help="Display only SSH connections related to a tunnel (only available as root).")
+
+    parser.add_option("-a", "--autossh",
+        action="store_true", default=False,
+        help="Display only the list of autossh processes.")
+
+    LOG_LEVELS = {'error'   : logging.ERROR,
+                  'warning' : logging.WARNING,
+                  'debug'   : logging.DEBUG}
+
+    parser.add_option('-l', '--log-level', choices=list(LOG_LEVELS), default='error', metavar='LEVEL',
+            help='Log level (%s), default: %s.' % (", ".join(LOG_LEVELS), 'error') )
+
+    parser.add_option('-f', '--log-file', default=None, metavar='FILE',
+            help="Log to this file, default to standard output. \
+            If not set, asking for the curses interface automatically set logging to the \"ereshkigal.log\" file.")
 
     (options, args) = parser.parse_args()
+    print(options)
+
+    logmsg = "----- Started Ereshkigal -----"
+    if options.log_file:
+        logfile = options.log_file
+        logging.basicConfig(filename=logfile, level=LOG_LEVELS[options.log_level])
+        logging.debug(logmsg)
+        logging.debug("Log in %s" % logfile)
+    else:
+        if options.curses:
+            logging.basicConfig(filename='ereshkigal.log', level=LOG_LEVELS[options.log_level])
+            logging.debug(logmsg)
+            logging.debug("Log in ereshkigal.log")
+        else:
+            logging.basicConfig(level=LOG_LEVELS[options.log_level])
+            logging.debug(logmsg)
+            logging.debug("Log to stdout")
+
+    logging.debug("Asked for: %s" % options)
 
     # unfortunately, options class has no __len__ method in python 2.4.3 (bug?)
     #if len(options) > 1:
     #    parser.error("options are mutually exclusive")
 
 
-    if  options.curses:
+    if options.curses:
+        logging.debug("Entering curses mode")
         import curses
         import traceback
 
@@ -584,30 +665,34 @@ if __name__ == "__main__":
 
 
     elif options.connections:
+        logging.debug("Entering connections mode")
         tm = AutoSSHTunnelMonitor()
         # do not call update() but only get connections
+        logging.debug("UID: %i." % os.geteuid())
         if os.geteuid() == 0:
             con = tm.get_connections()
             for c in con:
-                print con
+                print(con)
         else:
-            print "Error: only root can see SSH tunnels connections"
+            logging.error("Only root can see SSH tunnels connections.")
 
 
     elif options.autossh:
+        logging.debug("Entering autossh mode")
         tm = AutoSSHTunnelMonitor()
         # do not call update() bu only get autossh processes
         auto = tm.get_autossh_instances()
         for i in auto:
-            print auto
+            print(auto)
 
 
     else:
+        logging.debug("Entering default mode")
         tm = AutoSSHTunnelMonitor()
         # call update
         tm.update()
         # call the default __repr__
-        print tm
+        print(tm)
 
 
 #
