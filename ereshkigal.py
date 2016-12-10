@@ -34,7 +34,8 @@ from operator import itemgetter
 class SSHTunnel(dict):
     """A dictionary that stores an SSH connection related to a tunnel"""
 
-    def __init__(self, local_address = '1.1.1.1', local_port = 0, foreign_address = '1.1.1.1', foreign_port = 0, target_host = "Unknown", status = 'UNKNOWN', ssh_pid = 0, autossh_pid = 0 ):
+    def __init__(self, local_address = '1.1.1.1', local_port = 0, foreign_address = '1.1.1.1', foreign_port = 0,
+            target_host = "Unknown", status = 'UNKNOWN', ssh_pid = 0 ):
 
         # informations available with netstat
         self['local_address'] = local_address
@@ -44,21 +45,33 @@ class SSHTunnel(dict):
         self['target_host'] = target_host
         self['status'] = status
         self['ssh_pid'] = ssh_pid
-        self['autossh_pid'] = autossh_pid
 
-        # would be nice to have an estimation of the connections latency
+        # FIXME would be nice to have an estimation of the connections latency
         #self.latency = 0
 
 
     def __repr__(self):
         # do not print all the informations by default
         return "%i\t%i\t%s\t%s" % (
-            self['autossh_pid'],
-            self['local_port'], 
-            self['target_host'], 
+            self['local_port'],
+            self['target_host'],
             self['status']
             )
 
+
+class AutoSSHTunnel(SSHTunnel):
+    def __init__(self, autossh_pid = 0, *args ):
+        self['autossh_pid'] = autossh_pid
+        super().__init__(*args)
+
+    def __repr__(self):
+        # do not print all the informations by default
+        return "%i\t%i\t%s\t%s" % (
+            self['autossh_pid'],
+            self['local_port'],
+            self['target_host'],
+            self['status']
+            )
 
 class AutoSSHprocess(dict):
     """A dictionary that stores an autossh process"""
@@ -89,6 +102,7 @@ class AutoSSHprocess(dict):
         return repr
 
 
+# FIXME use regexps, for gods sake
 class AutoSSHTunnelMonitor(list):
     """List of existing autossh processes and ssh connections"""
 
@@ -114,15 +128,15 @@ class AutoSSHTunnelMonitor(list):
             logging.debug("Autossh processes: %s" % autosshs)
 
         # ssh connections related to a tunnel
-        connections = self.get_connections()
-        if connections:
-            logging.debug("SSH connections related to a tunnel: %s" % connections)
+        autocon,rawcon = self.get_connections()
+        if autocon:
+            logging.debug("SSH connections related to a tunnel: %s" % autocon)
 
         # Bind existing connections to autossh processes.
         # Thus the instance is a list of AutoSSHinstance instances,
         # each of those instances having a 'tunnels' key,
         # hosting the corresponding list of tunnel connections.
-        self[:] = self.bind_tunnels(autosshs, connections)
+        self[:] = self.bind_tunnels(autosshs, autocon)
 
         # sort on a given key
         self.sort_on( 'local_port')
@@ -229,7 +243,8 @@ class AutoSSHTunnelMonitor(list):
 
         cons = [i.split() for i in status_list if b'ssh' in i]
 
-        tunnels = []
+        autotunnels = []
+        rawtunnels = []
 
         for con in cons:
             logging.debug("Candidate connection: %s" % con)
@@ -286,20 +301,21 @@ class AutoSSHTunnelMonitor(list):
 
             # exclude the port
             content = f.readlines()
+            f.close()
             logging.debug("Cmd: %s" % content[0])
             if not 'autossh' in content[0]:
                 logging.warning("Tunnel not managed by autossh, ignore.")
                 # FIXME display those hanging tunnels in some way.
-                continue
+                rawtunnels.append( SSHTunnel( local_addr, local_port, foreign_addr, foreign_port, autohost, status, sshpid ) )
+            else:
 
-            autohost = content[0].split(':')[1]
-            f.close()
-            logging.debug("Parsed cmd without port: %s" % autohost)
+                autohost = content[0].split(':')[1]
+                logging.debug("Parsed cmd without port: %s" % autohost)
 
-            # instanciation
-            tunnels.append( SSHTunnel( local_addr, local_port, foreign_addr, foreign_port, autohost, status, sshpid, ppid ) )
+                # instanciation
+                autotunnels.append( AutoSSHTunnel( ppid, local_addr, local_port, foreign_addr, foreign_port, autohost, status, sshpid ) )
 
-        return tunnels
+        return autotunnels,rawtunnels
 
 
     def bind_tunnels(self, autosshs, tunnels):
@@ -340,8 +356,9 @@ class monitorCurses:
         # switch to show only autoss processes (False) or ssh connections also (True)
         self.show_tunnels = False
 
-        self.update_delay = 1 # seconds of delay between two updates
-        self.ui_delay = 0.05 # seconds between two loops
+        # FIXME pass as parameters+options
+        self.update_delay = 1 # seconds of delay between two data updates
+        self.ui_delay = 0.05 # seconds between two screen update
 
         # colors
         self.colors_autossh = {'pid':0, 'local_port':3, 'via_host':2, 'target_host':2, 'foreign_port':3, 'tunnels_nb':4, 'tunnels_nb_none':1}
@@ -728,7 +745,7 @@ if __name__ == "__main__":
         # do not call update() but only get connections
         logging.debug("UID: %i." % os.geteuid())
         if os.geteuid() == 0:
-            con = tm.get_connections()
+            con,raw = tm.get_connections()
             for c in con:
                 print(con)
         else:
