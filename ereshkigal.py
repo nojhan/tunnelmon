@@ -27,407 +27,222 @@
 import os
 import subprocess
 import logging
+import psutil
+import socket
+import re
 
-# fort sorting dictionaries easily
-from operator import itemgetter
 
-class SSHConnection(dict):
+class Tunnel:
+    def __init__(self, ssh_pid = None, in_port = None, via_host = None, target_host = None, out_port = None):
+        # assert(ssh_pid != None)
+        self.ssh_pid = ssh_pid
+        assert(in_port!=None)
+        self.in_port = in_port
+        assert(via_host!=None)
+        self.via_host = via_host
+        assert(target_host!=None)
+        self.target_host = target_host
+        assert(out_port!=None)
+        self.out_port = out_port
+
+        self.connections = []
+
+    def repr_tunnel(self):
+        return "%i\t%i\t%s\t%s\t%i" % (
+            self.ssh_pid,
+            self.in_port,
+            self.via_host,
+            self.target_host,
+            self.out_port)
+
+    def repr_connections(self):
+        # list of tunnels linked to this process
+        rep = ""
+        for c in self.connections:
+            rep += "\n↳\t%s" % c
+        return rep
+
+    def __repr__(self):
+        return self.repr_tunnel() + self.repr_connections()
+
+
+class AutoTunnel(Tunnel):
+    def __init__(self, autossh_pid = None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert(autossh_pid!=None)
+        self.autossh_pid = autossh_pid
+
+    def repr_tunnel(self):
+        rep = super().repr_tunnel()
+        return "auto\t" + rep
+
+
+class RawTunnel(Tunnel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def repr_tunnel(self):
+        rep = super().repr_tunnel()
+        return "ssh\t" + rep
+
+
+class Connection:
     """A dictionary that stores an SSH connection related to a tunnel"""
 
-    def __init__(self, local_address = '1.1.1.1', local_port = 0, foreign_address = '1.1.1.1', foreign_port = 0,
-            status = 'UNKNOWN', ssh_pid = 0 ):
+    def __init__(self, local_address = None, local_port = None, foreign_address = None, foreign_port = None,
+            status = None, family = None ):
 
         # informations available with netstat
-        self['local_address'] = local_address
-        self['local_port'] = local_port
-        self['foreign_address'] = foreign_address
-        self['foreign_port'] = foreign_port
-        self['status'] = status
-        self['ssh_pid'] = ssh_pid
+        assert(local_address!=None)
+        self.local_address = local_address
+        assert(local_port!=None)
+        self.local_port = local_port
+        self.foreign_address = foreign_address
+        self.foreign_port = foreign_port
+        assert(status!=None)
+        self.status = status
+        assert(family!=None)
+        self.family = family
+
+        self.family_rep = {socket.AddressFamily.AF_INET:"INET", socket.AddressFamily.AF_INET6:"INET6", socket.AddressFamily.AF_UNIX:"UNIX"}
 
         # FIXME would be nice to have an estimation of the connections latency
         #self.latency = 0
 
-
     def __repr__(self):
-        # do not print all the informations by default
-        return "%i\t%s:%i -> %s:%i\t%s" % (
-            self['ssh_pid'],
-            self['local_address'],
-            self['local_port'],
-            self['foreign_address'],
-            self['foreign_port'],
-            self['status']
-            )
+        # do not logging.debug all the informations by default
+        if self.foreign_address and self.foreign_port:
+            return "%s:%i -> %s:%i\t%s\t%s" % (
+                self.local_address,
+                self.local_port,
+                self.foreign_address,
+                self.foreign_port,
+                self.family_rep[self.family],
+                self.status,
+                )
+        else:
+            return "%s:%i\t%s\t%s" % (
+                self.local_address,
+                self.local_port,
+                self.family_rep[self.family],
+                self.status,
+                )
 
 
-class AutoSSHConnection(SSHConnection):
-    def __init__(self, autossh_pid = 0, target_host = "Unknown", *args ):
-        self['autossh_pid'] = autossh_pid
-        self['target_host'] = target_host
-        super().__init__(*args)
-
-    def __repr__(self):
-        # do not print all the informations by default
-        return "%i\t%s:%i -> %s:%i\t%s" % (
-            self['autossh_pid'],
-            self['local_address'],
-            self['local_port'],
-            self['target_host'],
-            self['foreign_port'],
-            self['status']
-            )
-
-
-class TunnelProcess(dict):
-    """A dictionary that stores an autossh process"""
-
-    def __init__(self, pid = 0, local_port = 0, via_host="Unknown", target_host = "Unknown", foreign_port = 0, kind='raw'):
-
-        # some informations available on /proc
-        self['pid'] = pid
-        self['local_port'] = local_port
-        self['via_host'] = via_host
-        self['target_host'] = target_host
-        self['foreign_port'] = foreign_port
-        assert(kind in ('auto','raw'))
-        self['kind'] = kind
-        self['connections'] = []
-
-    def __repr__(self):
-        # single informations
-        repr = "%s\t%i\t%i\t%s\t%s\t%i" % (
-            self['kind'],
-            self['pid'],
-            self['local_port'],
-            self['via_host'],
-            self['target_host'],
-            self['foreign_port'])
-
-        # list of tunnels linked to this process
-        for t in self['connections']:
-            repr += "\n↳\t%s" % t
-
-        return repr
-
-
-
-# FIXME use regexps, for gods sake
-class TunnelMonitor(list):
-    """List of existing autossh processes and ssh connections"""
-
+class TunnelsParser:
     def __init__(self):
         """Warning: the initialization does not gather tunnels informations, use update() to do so"""
-        # command that display network connections
-        self.network_cmd = "netstat -ntp"
 
-         # command that display processes
-        self.ps_cmd = "ps ax"
+        # { ssh_pid : Tunnel }
+        self.tunnels = {}
 
         # do not perform update by default
         # this is necessary because one may want
         # only a list of connections OR autossh processes
         #self.update()
 
+        self.re_forwarding = re.compile(r"-L(\d+):(.+):(\d+)")
+
+        self.header = 'TYPE\tPID\tIN_PORT\tVIA_HOST\tTARGET_HOST\tOUT_PORT'
+
+    def parse(self, cmd):
+        cmdline = " ".join(cmd)
+
+        logging.debug('autossh cmd line:', cmdline)
+        logging.debug('forwarding regexp:', self.re_forwarding)
+        match = self.re_forwarding.findall(cmdline)
+        logging.debug(match)
+        if match:
+            assert(len(match)==1)
+            in_port, target_host, out_port = match[0]
+            logging.debug("matches: ", match)
+
+        # Find the hostname on wich the tunnel is built.
+        via_host = "unknown"
+        # Search backward and take the first parameter argument.
+        # FIXME this is an ugly hack
+        for i in range( len(cmd)-1,0,-1 ):
+            if cmd[i][0] != '-':
+                via_host = cmd[i]
+                break
+
+        return (int(in_port), via_host, target_host, int(out_port))
+
 
     def update(self):
         """Gather and parse informations from the operating system"""
-        # autossh processes
-        autosshs = self.get_autossh_instances()
-        if autosshs:
-            logging.debug("autossh processes: %s" % autosshs)
 
-        # ssh processes
-        sshs = self.get_ssh_instances()
-        if sshs:
-            logging.debug("ssh processes: %s" % sshs)
+        self.tunnels.clear()
 
-        # ssh connections related to a tunnel
-        autocon,rawcon = self.get_connections()
-        if autocon:
-            logging.debug("SSH connections related to a tunnel: %s" % autocon)
-        if rawcon:
-            logging.debug("SSH connections not related to a tunnel: %s" % autocon)
+        # Browse the SSH processes handling a tunnel.
+        for proc in psutil.process_iter():
+            try:
+                process = proc.as_dict(attrs=['pid','ppid','name','cmdline','connections'])
+                cmd = process['cmdline']
+            except psutil.NoSuchProcess:
+                pass
+            else:
+                if process['name'] == 'ssh':
+                    logging.debug(process)
+                    in_port, via_host, target_host, out_port = self.parse(cmd)
+                    logging.debug(in_port, via_host, target_host, out_port)
 
-        # Bind existing connections to autossh processes.
-        # Thus the instance is a list of AutoSSHinstance instances,
-        # each of those instances having a 'connections' key,
-        # hosting the corresponding list of tunnel connections.
-        autop = self.bind_autotunnels(autosshs, autocon)
-        rawp  = self.bind_rawtunnels(sshs,     rawcon)
+                    # Check if this ssh tunnel is managed by autossh.
+                    parent = psutil.Process(process['ppid'])
+                    if parent.name() == 'autossh':
+                        # Add an autossh tunnel.
+                        pid = parent.pid # autossh pid
+                        self.tunnels[pid] = AutoTunnel(pid, process['pid'], in_port, via_host, target_host, out_port )
+                    else:
+                        # Add a raw tunnel.
+                        pid = process['pid']
+                        self.tunnels[pid] = RawTunnel(pid, in_port, via_host, target_host, out_port )
 
-        # Replace with new tunnels
-        self[:] = autop
+                    for c in process['connections']:
+                        logging.debug(c)
+                        laddr,lport = c.laddr
+                        if c.raddr:
+                            raddr,rport = c.raddr
+                        else:
+                            raddr,rport = (None,None)
+                        connection = Connection(laddr,lport,raddr,rport,c.status,c.family)
+                        logging.debug(connection)
+                        self.tunnels[pid].connections.append(connection)
 
-        # Add raw tunnels
-        logging.debug("Add only single raw ssh tunnels")
-        for p in rawp:
-            logging.debug("\traw ssh process: %i" % p['pid'])
-            duplicate = False
-            for a in autocon:
-                logging.debug("\t\tautossh connection: ssh_pid=%i, autossh_pid=%i" % (a['ssh_pid'],a['autossh_pid']))
-                if p['pid'] == a['ssh_pid']:
-                    duplicate = True
-                    logging.debug("\t\tduplicate")
-                    break
-            if not duplicate:
-                logging.debug("\tno duplicate, add as raw")
-                self.append(p)
-
-        # sort on a given key
-        self.sort_on( 'local_port')
-
-
-    def bind_autotunnels(self, autosshs, connections):
-        """Bind autossh process to the related ssh connections, according to the pid"""
-        for t in connections:
-            for i in autosshs:
-                if i['pid'] == t['ssh_pid']:
-                    # add to the list of connections of the TunnelProcess instance
-                    i['connections'].append( t )
-        return autosshs
-
-
-    def bind_rawtunnels(self, sshs, connections):
-        """Bind autossh process to the related ssh connections, according to the pid"""
-        for t in connections:
-            for i in sshs:
-                if i['pid'] == t['ssh_pid']:
-                    # add to the list of connections of the TunnelProcess instance
-                    i['connections'].append( t )
-        return sshs
+        logging.debug(self.tunnels)
 
 
     def __repr__(self):
-        repr = "TYPE\tPID\tINPORT\tVIA\t\tTARGET\t\tOUTPORT"
+        reps = [self.header]
+        for t in self.tunnels:
+            reps.append(str(self.tunnels[t]))
+        return "\n".join(reps)
 
-        # only root can see tunnels connections
-        if os.geteuid() == 0:
-            repr += "\t↳ CONNECTIONS"
 
-        repr += '\n'
 
-        # print each item in the list
-        for t in self:
-            repr += "%s\n" % t
 
-        return repr
 
 
-    def sort_on(self, key = 'autossh_pid' ):
-        """Sort items on a given key"""
-        # use the operator module
-        self[:] = sorted( self, key=itemgetter( key ) )
 
 
-    def get_autossh_instances(self):
-        """Gather and parse autossh processes"""
 
-        # call the command
-        #status = os.popen3( self.ps_cmd )
 
-        p = subprocess.Popen( self.ps_cmd, shell=True,
-              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
 
-        status = (p.stdin, p.stdout, p.stderr)
 
 
-        # list of processes with the "autossh" string
-        status_list = [ps for ps in status[1].readlines() if b"autossh" in ps]
-        if status_list:
-            logging.debug("Processes containing 'autossh': %s" % status_list)
 
-        # split the process line if it contains a "-L"
-        cmds = [i.split() for i in status_list if '-L' in i.decode()]
 
-        autosshs = []
 
-        for cmd in cmds:
-            logging.debug("Parse command: %s" % cmd)
 
-            # split the command in order to obtain arguments to the -L option
-            args = [i.strip(b'L-') for i in cmd if '-L' in i.decode()][0].split(b':')
-            logging.debug("Split around -L: %s" % args)
 
-            pid = int(cmd[0])
-            local_port = int(args[0])
-            target_host = args[1].decode()
-            foreign_port = int(args[2])
 
-            # find the hostname where the tunnel goes
-            via_host = "unknown"
-            for i in range( len(cmd)-1,0,-1 ):
-                if chr(cmd[i][0]) != '-':
-                    via_host = cmd[i].decode()
-                    logging.debug("Via host: %s" % via_host)
-                    break
 
 
-            auto = TunnelProcess( pid, local_port, via_host, target_host, foreign_port, kind='auto' )
-            logging.debug("Add TunnelProcess: %s" % auto)
 
-            autosshs.append( auto )
 
-        return autosshs
 
 
-    def get_ssh_instances(self):
-        """Gather and parse ssh processes"""
 
-        # call the command
-        #status = os.popen3( self.ps_cmd )
-
-        p = subprocess.Popen( self.ps_cmd, shell=True,
-              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
-
-        status = (p.stdin, p.stdout, p.stderr)
-
-
-        # list of processes with the "ssh" string
-        status_list = [ps for ps in status[1].readlines() if b"ssh" in ps]
-        if status_list:
-            logging.debug("Processes containing 'ssh': %s" % status_list)
-
-        # split the process line if it contains a "-L"
-        cmds = [i.split() for i in status_list if '-L' in i.decode()]
-
-        sshs = []
-
-        for cmd in cmds:
-            logging.debug("Parse command: %s" % cmd)
-
-            if 'autossh' in cmd[4].decode():
-                logging.debug('autossh command, ignore.')
-                continue
-
-            # split the command in order to obtain arguments to the -L option
-            args = [i.strip(b'L-') for i in cmd if '-L' in i.decode()][0].split(b':')
-            logging.debug("Split around -L: %s" % args)
-
-            pid = int(cmd[0])
-            local_port = int(args[0])
-            target_host = args[1].decode()
-            foreign_port = int(args[2])
-
-            # find the hostname where the tunnel goes
-            via_host = "unknown"
-            for i in range( len(cmd)-1,0,-1 ):
-                if chr(cmd[i][0]) != '-':
-                    via_host = cmd[i].decode()
-                    logging.debug("Via host: %s" % via_host)
-                    break
-
-
-            auto = TunnelProcess( pid, local_port, via_host, target_host, foreign_port, kind='raw' )
-            logging.debug("Add TunnelProcess: %s" % auto)
-
-            sshs.append( auto )
-
-        return sshs
-
-
-    def parse_addr_port(self, addr_port):
-        if len(addr_port) == 2: # ipv4
-            addr = addr_port[0].decode()
-            logging.debug("IPv4 address: %s" % addr)
-            port = int(addr_port[1])
-            logging.debug("IPv4 port: %s" % port)
-        else: # ipv6
-            addr = b":".join(addr_port[:-1]).decode()
-            logging.debug("IPv6 address: %s" % addr)
-            port = int(addr_port[-1])
-            logging.debug("IPv6 port: %s" % port)
-        return addr,port
-
-
-    def get_connections(self):
-        """Gather and parse ssh connections related to a tunnel"""
-
-        #status = os.popen3( self.network_cmd )
-
-        p = subprocess.Popen( self.network_cmd, shell=True,
-              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
-
-        status = (p.stdin, p.stdout, p.stderr)
-
-        status_list = status[1].readlines()
-        # logging.debug("%i active connections" % len(status_list))
-
-        cons = [i.split() for i in status_list if b'ssh' in i]
-
-        autotunnels = []
-        rawtunnels = []
-
-        for con in cons:
-            logging.debug("Candidate connection: %s" % con)
-            # netstat format:
-            # Proto Recv-Q Send-Q Adresse locale          Adresse distante        Etat       PID/Program name
-
-            # local infos
-            local = con[3].split(b':')
-            logging.debug("local infos: %s" % local)
-            local_addr, local_port = self.parse_addr_port(local)
-
-            # foreign infos
-            foreign = con[4].split(b':')
-            foreign_addr, foreign_port = self.parse_addr_port(foreign)
-
-            status = con[5].decode()
-            logging.debug("Connection status: %s" % status)
-
-            sshpid = int( con[6].split(b'/')[0] )
-            logging.debug("SSH PID: %s" % sshpid)
-
-            # ssh cmd line, got from /proc
-            f = open( '/proc/' + str(sshpid) + '/cmdline' )
-            cmd = f.readlines()[0]
-            f.close()
-            logging.debug("Command: %s" % cmd)
-
-            # if not an ssh tunnel command
-            if ('-L' not in cmd) or (':' not in cmd):
-                # do not list it
-                logging.debug("Not a tunnel command")
-                continue
-
-            logging.debug("Is a tunnel command")
-
-            # autossh parent process
-            ppidf = '/proc/' + str(sshpid) + '/status'
-            logging.debug("Parse %s" % ppidf)
-            f = open( ppidf )
-
-            # filter the parent pid
-            lpid = [i for i in f.readlines() if 'PPid' in str(i)]
-            f.close()
-            logging.debug("PPid: %s" % lpid)
-
-            # parsing
-            ppid = int(lpid[0].split(':')[1].strip())
-            logging.debug("Parsed PPid: %s" % ppid)
-
-            # command line of the parent process
-            pcmdf = '/proc/' + str(ppid) + '/cmdline' 
-            logging.debug("Parse %s" % pcmdf)
-            f = open( pcmdf )
-
-            # exclude the port
-            content = f.readlines()
-            f.close()
-            logging.debug("Cmd: %s" % content[0])
-            if not 'autossh' in content[0]:
-                logging.warning("Connection not managed by autossh.")
-                # FIXME display those hanging tunnels in some way.
-                rawtunnels.append( SSHConnection( local_addr, local_port, foreign_addr, foreign_port, status, sshpid ) )
-            else:
-
-                autohost = content[0].split(':')[1]
-                logging.debug("Parsed cmd without port: %s" % autohost)
-
-                # instanciation
-                autotunnels.append( AutoSSHConnection( ppid, autohost, local_addr, local_port, foreign_addr, foreign_port, status, sshpid ) )
-
-        return autotunnels,rawtunnels
 
 
 #################################################################################################
@@ -751,11 +566,11 @@ if __name__ == "__main__":
 
     parser.add_option("-n", "--connections",
         action="store_true", default=False,
-        help="Display only SSH connections related to a tunnel (only available as root).")
+        help="Display only SSH connections related to a tunnel.")
 
-    parser.add_option("-a", "--autossh",
+    parser.add_option("-u", "--tunnels",
         action="store_true", default=False,
-        help="Display only the list of autossh processes.")
+        help="Display only the list of tunnels processes.")
 
     LOG_LEVELS = {'error'   : logging.ERROR,
                   'warning' : logging.WARNING,
@@ -857,36 +672,37 @@ if __name__ == "__main__":
 
     elif asked_for.connections:
         logging.debug("Entering connections mode")
-        tm = TunnelMonitor()
+        tp = TunnelsParser()
+        tp.update()
         # do not call update() but only get connections
         logging.debug("UID: %i." % os.geteuid())
-        if os.geteuid() == 0:
-            con,raw = tm.get_connections()
-            for c in con:
-                print(c)
-            for c in raw:
-                print(c)
+        # if os.geteuid() == 0:
+        for t in tp.tunnels:
+            for c in tp.tunnels[t].connections:
+                print(tp.tunnels[t].ssh_pid, c)
 
-        else:
-            logging.error("Only root can see SSH tunnels connections.")
+        # else:
+        #     logging.error("Only root can see SSH tunnels connections.")
 
 
-    elif asked_for.autossh:
-        logging.debug("Entering autossh mode")
-        tm = TunnelMonitor()
+    elif asked_for.tunnels:
+        logging.debug("Entering tunnel mode")
+        tp = TunnelsParser()
+        tp.update()
         # do not call update() bu only get autossh processes
-        auto = tm.get_autossh_instances()
-        for i in auto:
-            print(auto)
+        print(tp.header)
+        for t in tp.tunnels:
+            if type(tp.tunnels[t]) == AutoTunnel:
+                print(tp.tunnels[t].repr_tunnel())
 
 
     else:
         logging.debug("Entering default mode")
-        tm = TunnelMonitor()
+        tp = TunnelsParser()
         # call update
-        tm.update()
+        tp.update()
         # call the default __repr__
-        print(tm)
+        print(tp)
 
 
 #
