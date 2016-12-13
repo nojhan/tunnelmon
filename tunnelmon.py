@@ -60,7 +60,7 @@ class Tunnel:
         # list of tunnels linked to this process
         rep = ""
         for c in self.connections:
-            rep += "\n↳\t%s" % c
+            rep += "\n\t↳ %s" % c
         return rep
 
     def __repr__(self):
@@ -113,20 +113,20 @@ class Connection:
     def __repr__(self):
         # do not logging.debug all the informations by default
         if self.foreign_address and self.out_port:
-            return "%s:%i -> %s:%i\t%s\t%s" % (
+            return "%s\t%s\t%s:%i → %s:%i" % (
+                self.family_rep[self.family],
+                self.status,
                 self.local_address,
                 self.in_port,
                 self.foreign_address,
                 self.out_port,
-                self.family_rep[self.family],
-                self.status,
                 )
         else:
-            return "%s:%i\t%s\t%s" % (
-                self.local_address,
-                self.in_port,
+            return "%s\t%s\t%s:%i" % (
                 self.family_rep[self.family],
                 self.status,
+                self.local_address,
+                self.in_port,
                 )
 
 
@@ -144,7 +144,7 @@ class TunnelsParser:
 
         self.re_forwarding = re.compile(r"-L(\d+):(.+):(\d+)")
 
-        self.header = 'TYPE\tPID\tIN_PORT\tVIA_HOST\tTARGET_HOST\tOUT_PORT'
+        self.header = 'TYPE\tSSH_PID\tIN_PORT\tVIA_HOST\tTARGET_HOST\tOUT_PORT'
 
 
     def get_tunnel(self, pos):
@@ -227,31 +227,6 @@ class TunnelsParser:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #################################################################################################
 # INTERFACES
 #################################################################################################
@@ -286,8 +261,10 @@ class CursesMonitor:
         # colors
         # FIXME different colors for different types of tunnels (auto or raw)
         self.colors_tunnel =    {'kind_auto':4, 'kind_raw':5, 'ssh_pid':0, 'in_port':3, 'via_host':2, 'target_host':2, 'out_port':3, 'tunnels_nb':4, 'tunnels_nb_none':1}
-        self.colors_highlight = {'kind_auto':9, 'kind_raw':5, 'ssh_pid':9, 'in_port':9, 'via_host':9, 'target_host':9, 'out_port':9, 'tunnels_nb':9, 'tunnels_nb_none':9}
+        self.colors_highlight = {'kind_auto':9, 'kind_raw':9, 'ssh_pid':9, 'in_port':9, 'via_host':9, 'target_host':9, 'out_port':9, 'tunnels_nb':9, 'tunnels_nb_none':9}
         self.colors_connection = {'ssh_pid':0, 'autossh_pid':0, 'status':4, 'status_out':1, 'local_address':2, 'in_port':3, 'foreign_address':2, 'out_port':3}
+
+        self.header = ("TYPE","SSHPID","INPORT","VIA","TARGET","OUTPORT")
 
     def do_Q(self):
         """Quit"""
@@ -449,6 +426,19 @@ class CursesMonitor:
         # end of the loop
 
 
+    def format(self):
+        reps = [self.tp.tunnels[t].repr_tunnel() for t in self.tp.tunnels]
+        tuns = [t.split() for t in reps]
+        tuns.append(self.header)
+        logging.debug(tuns)
+        cols = zip(*tuns)
+        widths = [max(len(s) for s in col) for col in cols]
+        logging.debug(widths)
+        fmt = ['{{: <{}}}'.format(w) for w in widths]
+        logging.debug(fmt)
+        return fmt
+
+
     def display(self):
         """Generate the interface screen"""
 
@@ -482,9 +472,10 @@ class CursesMonitor:
             self.cur_pid = -1
 
         # header line
-        header_msg = "TYPE\tINPORT\tVIA              \tTARGET              \tOUTPORT"
+        # header_msg = "TYPE\tINPORT\tVIA              \tTARGET              \tOUTPORT"
         # if os.geteuid() == 0:
-        header_msg += "\tCONNECTIONS"
+        header_msg = " ".join(self.format()).format(*self.header)
+        header_msg += " CONNECTIONS"
         self.scr.addstr( header_msg, curses.color_pair(color) )
         self.scr.clrtoeol()
 
@@ -544,17 +535,18 @@ class CursesMonitor:
             colors =  self.colors_highlight
 
         if type(self.tp.get_tunnel(line)) == AutoTunnel:
-            self.scr.addstr( 'auto', curses.color_pair(colors['kind_auto']) )
-            self.scr.addstr( '\t',   curses.color_pair(colors['kind_auto'])  )
+            self.scr.addstr( self.format()[0].format('auto'), curses.color_pair(colors['kind_auto']) )
+            self.scr.addstr( ' ',   curses.color_pair(colors['kind_auto'])  )
         else:
-            self.scr.addstr( 'ssh',  curses.color_pair(colors['kind_raw']) )
-            self.scr.addstr( '\t',   curses.color_pair(colors['kind_raw'])  )
+            self.scr.addstr( self.format()[0].format('ssh'),  curses.color_pair(colors['kind_raw']) )
+            self.scr.addstr( ' ',   curses.color_pair(colors['kind_raw'])  )
 
         # self.add_tunnel_info('ssh_pid', line)
-        self.add_tunnel_info('in_port', line)
-        self.add_tunnel_info('via_host', line)
-        self.add_tunnel_info('target_host', line)
-        self.add_tunnel_info('out_port', line)
+        self.add_tunnel_info('ssh_pid', line, 1)
+        self.add_tunnel_info('in_port', line, 2)
+        self.add_tunnel_info('via_host', line, 3)
+        self.add_tunnel_info('target_host', line, 4)
+        self.add_tunnel_info('out_port', line, 5)
 
         nb = len(self.tp.get_tunnel(line).connections )
         if nb > 0:
@@ -574,7 +566,8 @@ class CursesMonitor:
 
         self.scr.clrtoeol()
 
-    def add_tunnel_info( self, key, line ):
+
+    def add_tunnel_info( self, key, line, col ):
         """Add an information of an autossh process, in the configured color"""
 
         colors = self.colors_tunnel
@@ -585,12 +578,10 @@ class CursesMonitor:
 
         txt = eval("str(self.tp.get_tunnel(line).%s)" % key)
         if key == 'target_host' or key == 'via_host':
-            # limit the size of the line to 20
-            # FIXME avoid hard-coded constants
-            txt = eval("str(self.tp.get_tunnel(line).%s).ljust(20)[:20]" % key)
+            txt = eval("str(self.tp.get_tunnel(line).%s)" % key)
 
-        self.scr.addstr( txt, curses.color_pair(colors[key]) )
-        self.scr.addstr( '\t', curses.color_pair(colors[key])  )
+        self.scr.addstr(self.format()[col].format(txt), curses.color_pair(colors[key]) )
+        self.scr.addstr( ' ', curses.color_pair(colors[key])  )
 
 
 
@@ -738,8 +729,7 @@ if __name__ == "__main__":
         # do not call update() bu only get autossh processes
         print(tp.header)
         for t in tp.tunnels:
-            if type(tp.tunnels[t]) == AutoTunnel:
-                print(tp.tunnels[t].repr_tunnel())
+            print(tp.tunnels[t].repr_tunnel())
 
 
     else:
