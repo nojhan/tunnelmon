@@ -1,4 +1,10 @@
-0:4:
+0.5:
+* python3
+* complete rewrite for portability
+* handle autossh tunnels *and* raw ssh tunnels
+* better formatting
+
+0.4:
 * adds IPv6 support
 * bugfixes
 
