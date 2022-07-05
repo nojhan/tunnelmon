@@ -376,7 +376,7 @@ class CursesMonitor:
         self.display()
 
         # first update counter
-        self.last_update = time.clock()
+        self.last_update = time.perf_counter()
         self.last_state = None
         self.log_ticks = ""
 

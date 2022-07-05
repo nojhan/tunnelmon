@@ -21,9 +21,9 @@ It can print the current state of your tunnels or display them in an interactive
 
 `tunnelmon` targets Linux operating systems, and depends on:
 * `openssh-client`
-* `python3`
+* `python` version 3.8 at least.
 
-You may want to install the recommend pacages also:
+You may also want to install the recommend packages:
 * `autossh`
 
 
@@ -62,3 +62,16 @@ Keyboard commands:
 * `N`: Show the network connections related to each tunnel instances.
 * `Q`: Quit tunnelmon.
 
+
+## SSH Tunnels in a nutshell
+
+To open a tunnel to port 1234 of `server` through a `host` reached on port 4567:
+```sh
+ssh -N host -L4567:server:1234
+```
+You may add `-f` to run ssh in the background.
+
+Autossh can restart tunnels for you, in case they crash:
+̏```
+autossh -f host -L4567:server:1234
+```
