@@ -72,6 +72,6 @@ ssh -N host -L4567:server:1234
 You may add `-f` to run ssh in the background.
 
 Autossh can restart tunnels for you, in case they crash:
-̏```
+```
 autossh -f host -L4567:server:1234
 ```
