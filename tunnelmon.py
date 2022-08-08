@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# Ereshkigal is an AutoSSH tunnel monitor
+# Tunnelmon is an AutoSSH tunnel monitor
 # It gives a curses user interface to monitor existing SSH tunnel that are managed with autossh.
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -593,7 +593,7 @@ if __name__ == "__main__":
 
     usage = """%prog [options]
     A user interface to monitor existing SSH tunnel that are managed with autossh.
-    Called without options, ereshkigal displays a list of tunnels on the standard output.
+    Called without options, Tunnelmon displays a list of tunnels on the standard output.
     Note: Users other than root will not see tunnels connections.
     Version 0.3"""
     parser = OptionParser(usage=usage)
@@ -622,11 +622,11 @@ if __name__ == "__main__":
             If you use the curses interface, you may want to set this to actually see logs.")
 
     parser.add_option('-f', '--config-file', default=None, metavar='FILE',
-                      help="Use this configuration file (default: '~/.ereshkigal.conf')")
+                      help="Use this configuration file (default: '~/.tunnelmon.conf')")
 
     (asked_for, args) = parser.parse_args()
 
-    logmsg = "----- Started Ereshkigal -----"
+    logmsg = "----- Started Tunnelmon -----"
 
     if asked_for.log_file:
         logfile = asked_for.log_file
@@ -654,7 +654,7 @@ if __name__ == "__main__":
             logging.error("'%s' contains no known configuration", asked_for.config_file)
     else:
         try:
-            config.read('~/.ereshkigal.conf')
+            config.read('~/.tunnelmon.conf')
         except configparser.MissingSectionHeaderError:
             logging.error("'%s' contains no known configuration", asked_for.config_file)
 
@@ -736,12 +736,3 @@ if __name__ == "__main__":
         # call the default __repr__
         print(tp)
 
-
-#
-# In Mesopotamian mythology, Ereshkigal (lit. "great lady under earth")
-# was the goddess of Irkalla, the land of the dead or underworld.
-#
-# Thus, she knows a lot about tunnels...
-#
-# http://en.wikipedia.org/wiki/Ereshkigal
-#
