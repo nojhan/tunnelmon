@@ -146,7 +146,7 @@ class TunnelsParser:
         # only a list of connections OR autossh processes
         # self.update()
 
-        self.re_forwarding = re.compile(r"-L\s*(\d+):(.*):(\d+)")
+        self.re_forwarding = re.compile(r"-\w*[LRD]\w*\s*(\d+):(.*):(\d+)")
 
         self.header = 'TYPE\tSSH_PID\tIN_PORT\tVIA_HOST\tTARGET_HOST\tOUT_PORT'
 
