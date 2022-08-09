@@ -155,7 +155,7 @@ class TunnelsParser:
 
         self.re_forwarding = re.compile(r"-\w*([LRD])\w*\s*(\d+):(.*):(\d+)")
 
-        self.header = 'TYPE\tFORWARD\tSSH_PID\tIN_PORT\tVIA_HOST\tTARGET_HOST\tOUT_PORT'
+        self.header = 'TYPE\tFORWARD\tSSHPID\tINPORT\tVIA\tTARGET\tOUTPORT'
 
     def get_tunnel(self, pos):
         pid = list(self.tunnels.keys())[pos]
@@ -258,6 +258,9 @@ class CursesMonitor:
     """Textual user interface to display up-to-date informations about current tunnels"""
 
     def __init__(self, scr):
+        # hide cursor
+        curses.curs_set(0)
+        
         # curses screen
         self.scr = scr
 
@@ -278,31 +281,61 @@ class CursesMonitor:
         self.ui_delay = 0.05  # seconds between two screen update
 
         # colors
-        # FIXME different colors for different types of tunnels (auto or raw)
-        #  0: Black,
-        #  1: Blue,
-        #  2: Green,
-        #  3: Cyan,
-        #  4: Red,
-        #  5: Magenta,
-        #  6: Brown,
-        #  7: White ("Light Gray"),
-        #  8: Bright Black ("Gray"),
-        #  9: Bright Blue,
-        # 10: Bright Green,
-        # 11: Bright Cyan,
-        # 12: Bright Red,
-        # 13: Bright Magenta,
-        # 14: Yellow,
-        # 15: Bright White
-        self.colors_tunnel = {'kind_auto': 4, 'kind_raw': 5, 'ssh_pid': 0, 'in_port': 3,
-                              'via_host': 2, 'target_host': 2, 'out_port': 3, 'tunnels_nb': 4, 'tunnels_nb_none': 1,
-                              'forward': 6}
-        self.colors_highlight = {'kind_auto': 9, 'kind_raw': 9, 'ssh_pid': 9, 'in_port': 9,
-                                 'via_host': 9, 'target_host': 9, 'out_port': 9, 'tunnels_nb': 9, 'tunnels_nb_none': 9,
-                              'forward': 9}
-        self.colors_connection = {'ssh_pid': 0, 'autossh_pid': 0, 'status': 4, 'status_out': 1,
-                                  'local_address': 2, 'in_port': 3, 'foreign_address': 2, 'out_port': 3}
+        # 0:black, 1:red, 2:green, 3:yellow, 4:blue, 5:magenta, 6:cyan, and 7:white.
+        self.colors_tunnel = {
+            'kind_auto'      : curses.COLOR_CYAN,
+            'kind_raw'       : curses.COLOR_BLUE,
+            'ssh_pid'        : curses.COLOR_WHITE,
+            'in_port'        : curses.COLOR_YELLOW,
+            'out_port'       : curses.COLOR_YELLOW,
+            'in_port_priv'   : curses.COLOR_RED,
+            'out_port_priv'  : curses.COLOR_RED,
+            'via_host'       : curses.COLOR_GREEN,
+            'target_host'    : curses.COLOR_GREEN,
+            'via_local'      : curses.COLOR_BLUE,
+            'target_local'   : curses.COLOR_BLUE,
+            'via_priv'       : curses.COLOR_CYAN,
+            'target_priv'    : curses.COLOR_CYAN,
+            'tunnels_nb'     : curses.COLOR_RED,
+            'tunnels_nb_none': curses.COLOR_RED,
+            'forward_local'  : curses.COLOR_BLUE,
+            'forward_remote' : curses.COLOR_CYAN,
+            'forward_dynamic': curses.COLOR_YELLOW,
+            'forward_unknown': curses.COLOR_WHITE,
+        }
+        self.colors_highlight = {
+            'kind_auto'      : 9,
+            'kind_raw'       : 9,
+            'ssh_pid'        : 9,
+            'in_port'        : 9,
+            'out_port'       : 9,
+            'in_port_priv'   : 9,
+            'out_port_priv'  : 9,
+            'via_host'       : 9,
+            'target_host'    : 9,
+            'via_local'      : 9,
+            'target_local'   : 9,
+            'via_priv'       : 9,
+            'target_priv'    : 9,
+            'tunnels_nb'     : 9,
+            'tunnels_nb_none': 9,
+            'forward_local'  : 9,
+            'forward_remote' : 9,
+            'forward_dynamic': 9,
+            'forward_unknown': 9,
+        }
+        self.colors_connection = {
+            'ssh_pid'        : curses.COLOR_WHITE,
+            'autossh_pid'    : curses.COLOR_WHITE,
+            'status'         : curses.COLOR_CYAN,
+            'status_out'     : curses.COLOR_RED,
+            'local_address'  : curses.COLOR_BLUE,
+            'foreign_address': curses.COLOR_GREEN,
+            'in_port'        : curses.COLOR_YELLOW,
+            'out_port'       : curses.COLOR_YELLOW,
+            'in_port_priv'   : curses.COLOR_RED,
+            'out_port_priv'  : curses.COLOR_RED,
+        }
 
         self.header = ("TYPE", "FORWARD", "SSHPID", "INPORT", "VIA", "TARGET", "OUTPORT")
 
@@ -459,6 +492,7 @@ class CursesMonitor:
         # end of the loop
 
     def format(self):
+        """Prepare formating strings to pad with spaces up to the tolumn header width."""
         reps = [self.tp.tunnels[t].repr_tunnel() for t in self.tp.tunnels]
         tuns = [t.split() for t in reps]
         tuns.append(self.header)
@@ -556,25 +590,67 @@ class CursesMonitor:
         """Add line corresponding to the line-th autossh process"""
         self.scr.addstr('\n')
 
+        # Handle on the current tunnel object.
+        t = self.tp.get_tunnel(line)
+
+        # Highlight selected line.
         colors = self.colors_tunnel
         if self.cur_line == line:
             colors = self.colors_highlight
 
+        # TYPE
         if type(self.tp.get_tunnel(line)) == AutoTunnel:
+            # Format 'auto' using the 0th column format string and the related color..
             self.scr.addstr(self.format()[0].format('auto'), curses.color_pair(colors['kind_auto']))
+            # Trailing space.
             self.scr.addstr(' ',   curses.color_pair(colors['kind_auto']))
         else:
             self.scr.addstr(self.format()[0].format('ssh'),  curses.color_pair(colors['kind_raw']))
             self.scr.addstr(' ',   curses.color_pair(colors['kind_raw']))
 
-        # self.add_tunnel_info('ssh_pid', line)
-        self.add_tunnel_info('forward'    , line, 1)
-        self.add_tunnel_info('ssh_pid'    , line, 2)
-        self.add_tunnel_info('in_port'    , line, 3)
-        self.add_tunnel_info('via_host'   , line, 4)
-        self.add_tunnel_info('target_host', line, 5)
-        self.add_tunnel_info('out_port'   , line, 6)
+        # FORWARD
+        fwd = t.forward
+        self.scr.addstr(self.format()[1].format(fwd), curses.color_pair(colors['forward_'+fwd]))
+        self.scr.addstr(' ',   curses.color_pair(colors['forward_'+fwd]))
 
+        # SSHPID
+        self.add_tunnel_info('ssh_pid'    , line, 2)
+
+        # INPORT
+        if t.in_port <= 1024:
+            self.scr.addstr(self.format()[3].format(t.in_port), curses.color_pair(colors['in_port_priv']))
+            self.scr.addstr(' ',   curses.color_pair(colors['in_port_priv']))
+        else:
+            self.add_tunnel_info('in_port'    , line, 3)
+
+        # VIA
+        if any(re.match(p,t.via_host) for p in ["^127\..*", "::1", "localhost"]): # loopback
+            self.scr.addstr(self.format()[4].format(t.via_host), curses.color_pair(colors['via_local']))
+            self.scr.addstr(' ',   curses.color_pair(colors['via_local']))
+        elif any(re.match(p,t.via_host) for p in ["^10\..*", "^172\.[123][0-9]*\..*", "^192\.0\.0\.[0-9]+", "^192\.168\..*", "64:ff9b:1:.*", "fc00::.*"]): # private network
+            self.scr.addstr(self.format()[4].format(t.via_host), curses.color_pair(colors['via_priv']))
+            self.scr.addstr(' ',   curses.color_pair(colors['via_priv']))
+        else:
+            self.add_tunnel_info('via_host'   , line, 4)
+
+        # TARGET
+        if any(re.match(p,t.target_host) for p in ["^127\..*", "::1", "localhost"]): # loopback
+            self.scr.addstr(self.format()[5].format(t.target_host), curses.color_pair(colors['target_local']))
+            self.scr.addstr(' ',   curses.color_pair(colors['target_local']))
+        elif any(re.match(p,t.target_host) for p in ["^10\..*", "^172\.[123][0-9]*\..*", "^192\.0\.0\.[0-9]+", "^192\.168\..*", "64:ff9b:1:.*", "fc00::.*"]): # private network
+            self.scr.addstr(self.format()[5].format(t.target_host), curses.color_pair(colors['target_priv']))
+            self.scr.addstr(' ',   curses.color_pair(colors['target_priv']))
+        else:
+            self.add_tunnel_info('target_host'   , line, 5)
+
+        # OUTPORT
+        if t.out_port <= 1024:
+            self.scr.addstr(self.format()[6].format(t.out_port), curses.color_pair(colors['out_port_priv']))
+            self.scr.addstr(' ',   curses.color_pair(colors['out_port_priv']))
+        else:
+            self.add_tunnel_info('out_port'    , line, 6)
+
+        # CONNECTIONS
         nb = len(self.tp.get_tunnel(line).connections)
         if nb > 0:
             # for each connection related to this process
