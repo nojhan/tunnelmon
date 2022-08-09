@@ -10,11 +10,13 @@ tunnelmon -- Monitor and manage autoSSH tunnels
 
 ## DESCRIPTION
 
-`tunnelmon` is an autossh tunnel monitor. It gives a user interface to monitor existing SSH tunnel that are managed with autossh. 
+`tunnelmon` is an autossh tunnel monitor. It gives a user interface to monitor existing SSH tunnel, and tunnels managed with autossh. 
 
 It can print the current state of your tunnels or display them in an interactive text-based interface.
 
 `tunnelmon` is released under the GNU Public License v3.
+
+![Screenshot](https://raw.github.com/nojhan/tunnelmon/master/screenshot.png)
 
 
 ## INSTALLATION
@@ -63,6 +65,30 @@ Keyboard commands:
 * `Q`: Quit tunnelmon.
 
 
+## DISPLAY
+
+Tunnelmon displays a table where lines are [auto]ssh processes that sets up a tunnel.
+Columns of the table indicates:
+- TYPE: `auto` if the process is managed by autossh, `ssh` if it is a "raw" SSH tunnel;
+- FORWARD: the type of port forwarding method (either `local`, `remote` or `dynamic`, see the SSH manual for details);
+- SSHPID: the process identifier;
+- INPORT: the client port;
+- VIA: the client host;
+- TARGET: the host address;
+- OUTPORT: the host port.
+
+The interactive interface adds a CONNECTIONS columns that displays one vertical bar for each connection set up by the tunnel.
+
+If you ask for showing the connections list (typing `N` in the interactive interface, or not passing `-u` to the command line one),
+Tunnelmon will show indented lines with the type of the connection, its status and the related address:port informations.
+
+In the interactive interface, different colors are used for:
+- the tunnel type,
+- the port forwarding methods,
+- privileged and unprivileged ports,
+- loopback, private and regular addresses.
+
+
 ## SSH Tunnels in a nutshell
 
 To open a tunnel to port 1234 of `server` through a `host` reached on port 4567:
@@ -75,3 +101,4 @@ Autossh can restart tunnels for you, in case they crash:
 ```
 autossh -f host -L4567:server:1234
 ```
+
