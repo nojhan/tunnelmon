@@ -38,7 +38,7 @@ import itertools
 
 
 class Tunnel:
-    def __init__(self, ssh_pid=None, in_port=None, via_host=None, target_host=None, out_port=None):
+    def __init__(self, ssh_pid=None, in_port=None, via_host=None, target_host=None, out_port=None, forward=None):
         # assert ssh_pid is not None
         self.ssh_pid = ssh_pid
         assert in_port is not None
@@ -49,11 +49,18 @@ class Tunnel:
         self.target_host = target_host
         assert out_port is not None
         self.out_port = out_port
+        assert forward is not None
+        self.forwards = {'L':'local', 'R':'remote', 'D': 'dynamic'}
+        if forward in self.forwards:
+            self.forward = self.forwards[forward]
+        else:
+            self.forward = "unknown"    
 
         self.connections = []
 
     def repr_tunnel(self):
-        return "%i\t%i\t%s\t%s\t%i" % (
+        return "%s\t%i\t%i\t%s\t%s\t%i" % (
+            self.forward,
             self.ssh_pid,
             self.in_port,
             self.via_host,
@@ -146,9 +153,9 @@ class TunnelsParser:
         # only a list of connections OR autossh processes
         # self.update()
 
-        self.re_forwarding = re.compile(r"-\w*[LRD]\w*\s*(\d+):(.*):(\d+)")
+        self.re_forwarding = re.compile(r"-\w*([LRD])\w*\s*(\d+):(.*):(\d+)")
 
-        self.header = 'TYPE\tSSH_PID\tIN_PORT\tVIA_HOST\tTARGET_HOST\tOUT_PORT'
+        self.header = 'TYPE\tFORWARD\tSSH_PID\tIN_PORT\tVIA_HOST\tTARGET_HOST\tOUT_PORT'
 
     def get_tunnel(self, pos):
         pid = list(self.tunnels.keys())[pos]
@@ -163,7 +170,7 @@ class TunnelsParser:
         logging.debug(match)
         if match:
             assert len(match) == 1
-            in_port, target_host, out_port = match[0]
+            forward, in_port, target_host, out_port = match[0]
             logging.debug("matches: %s", match)
         else:
             raise ValueError("is not a ssh tunnel")
@@ -188,7 +195,7 @@ class TunnelsParser:
                 via_host = cmd[i]
                 break
 
-        return int(in_port), via_host, target_host, int(out_port)
+        return int(in_port), via_host, target_host, int(out_port), forward
 
     def update(self):
         """Gather and parse informations from the operating system"""
@@ -206,21 +213,21 @@ class TunnelsParser:
                 if process['name'] == 'ssh':
                     logging.debug(process)
                     try:
-                        in_port, via_host, target_host, out_port = self.parse(cmd)
+                        in_port, via_host, target_host, out_port, forward = self.parse(cmd)
                     except ValueError:
                         continue
-                    logging.debug("%s %s %s %s", in_port, via_host, target_host, out_port)
+                    logging.debug("%s %s %s %s %s", in_port, via_host, target_host, out_port, forward)
 
                     # Check if this ssh tunnel is managed by autossh.
                     parent = psutil.Process(process['ppid'])
                     if parent.name() == 'autossh':
                         # Add an autossh tunnel.
                         pid = parent.pid  # autossh pid
-                        self.tunnels[pid] = AutoTunnel(pid, process['pid'], in_port, via_host, target_host, out_port)
+                        self.tunnels[pid] = AutoTunnel(pid, process['pid'], in_port, via_host, target_host, out_port, forward)
                     else:
                         # Add a raw tunnel.
                         pid = process['pid']
-                        self.tunnels[pid] = RawTunnel(pid, in_port, via_host, target_host, out_port)
+                        self.tunnels[pid] = RawTunnel(pid, in_port, via_host, target_host, out_port, forward)
 
                     for c in process['connections']:
                         logging.debug(c)
@@ -272,14 +279,32 @@ class CursesMonitor:
 
         # colors
         # FIXME different colors for different types of tunnels (auto or raw)
+        #  0: Black,
+        #  1: Blue,
+        #  2: Green,
+        #  3: Cyan,
+        #  4: Red,
+        #  5: Magenta,
+        #  6: Brown,
+        #  7: White ("Light Gray"),
+        #  8: Bright Black ("Gray"),
+        #  9: Bright Blue,
+        # 10: Bright Green,
+        # 11: Bright Cyan,
+        # 12: Bright Red,
+        # 13: Bright Magenta,
+        # 14: Yellow,
+        # 15: Bright White
         self.colors_tunnel = {'kind_auto': 4, 'kind_raw': 5, 'ssh_pid': 0, 'in_port': 3,
-                              'via_host': 2, 'target_host': 2, 'out_port': 3, 'tunnels_nb': 4, 'tunnels_nb_none': 1}
+                              'via_host': 2, 'target_host': 2, 'out_port': 3, 'tunnels_nb': 4, 'tunnels_nb_none': 1,
+                              'forward': 6}
         self.colors_highlight = {'kind_auto': 9, 'kind_raw': 9, 'ssh_pid': 9, 'in_port': 9,
-                                 'via_host': 9, 'target_host': 9, 'out_port': 9, 'tunnels_nb': 9, 'tunnels_nb_none': 9}
+                                 'via_host': 9, 'target_host': 9, 'out_port': 9, 'tunnels_nb': 9, 'tunnels_nb_none': 9,
+                              'forward': 9}
         self.colors_connection = {'ssh_pid': 0, 'autossh_pid': 0, 'status': 4, 'status_out': 1,
                                   'local_address': 2, 'in_port': 3, 'foreign_address': 2, 'out_port': 3}
 
-        self.header = ("TYPE", "SSHPID", "INPORT", "VIA", "TARGET", "OUTPORT")
+        self.header = ("TYPE", "FORWARD", "SSHPID", "INPORT", "VIA", "TARGET", "OUTPORT")
 
     def do_Q(self):
         """Quit"""
@@ -477,8 +502,6 @@ class CursesMonitor:
             self.cur_pid = -1
 
         # header line
-        # header_msg = "TYPE\tINPORT\tVIA              \tTARGET              \tOUTPORT"
-        # if os.geteuid() == 0:
         header_msg = " ".join(self.format()).format(*self.header)
         header_msg += " CONNECTIONS"
         self.scr.addstr(header_msg, curses.color_pair(color))
@@ -545,11 +568,12 @@ class CursesMonitor:
             self.scr.addstr(' ',   curses.color_pair(colors['kind_raw']))
 
         # self.add_tunnel_info('ssh_pid', line)
-        self.add_tunnel_info('ssh_pid', line, 1)
-        self.add_tunnel_info('in_port', line, 2)
-        self.add_tunnel_info('via_host', line, 3)
-        self.add_tunnel_info('target_host', line, 4)
-        self.add_tunnel_info('out_port', line, 5)
+        self.add_tunnel_info('forward'    , line, 1)
+        self.add_tunnel_info('ssh_pid'    , line, 2)
+        self.add_tunnel_info('in_port'    , line, 3)
+        self.add_tunnel_info('via_host'   , line, 4)
+        self.add_tunnel_info('target_host', line, 5)
+        self.add_tunnel_info('out_port'   , line, 6)
 
         nb = len(self.tp.get_tunnel(line).connections)
         if nb > 0:
