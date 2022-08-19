@@ -22,8 +22,10 @@ It can print the current state of your tunnels or display them in an interactive
 ## INSTALLATION
 
 `tunnelmon` targets Linux operating systems, and depends on:
-* `openssh-client`
-* `python` version 3.8 at least.
+* `openssh-client`,
+* `python` version 3.8 at least, you may also need to install the following python modules (for example via `pip`, but you may use any other package management system going along with your installation):
+  * `psutils`
+  * `curses`
 
 You may also want to install the recommend packages:
 * `autossh`
