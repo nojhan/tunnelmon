@@ -162,7 +162,10 @@ class TunnelsParser:
         return self.tunnels[pid]
 
     def parse(self, cmd):
-        cmdline = " ".join(cmd)
+        try:
+            cmdline = " ".join(cmd)
+        except TypeError:
+            cmdline = cmd
 
         logging.debug('autossh cmd line: %s', cmdline)
         logging.debug('forwarding regexp: %s', self.re_forwarding)
