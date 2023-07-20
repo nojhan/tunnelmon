@@ -5,12 +5,12 @@ tunnelmon -- Monitor and manage autoSSH tunnels
 
 `tunnelmon` [-h]
 
-`tunnelmon` [-c] [-n] [-u] [-l LEVEL] [-g FILE]
+`tunnelmon` [-c] [-n] [-u] [-l LEVEL] [-g FILE] [-s]
 
 
 ## DESCRIPTION
 
-`tunnelmon` is an autossh tunnel monitor. It gives a user interface to monitor existing SSH tunnel, and tunnels managed with autossh. 
+`tunnelmon` is an autossh tunnel monitor. It gives a user interface to monitor existing SSH tunnel, and tunnels managed with autossh.
 
 It can print the current state of your tunnels or display them in an interactive text-based interface.
 
@@ -55,6 +55,9 @@ Called without option,`tunnelmon` will print the current state of the autossh tu
   Log messages are written to the given FILE. Useful to debug the interactive interface.
   If not set, asking for the curses interface automatically set logging to the "tunnelmon.log" file.
 
+* `-s`, `--log-sensitive`:
+  Allow sensitive information (hostnames, IPs, PIDs, etc.) into the logs.
+
 
 ## INTERACTIVE INTERFACE
 
@@ -64,7 +67,7 @@ Keyboard commands:
 * `R`: Reload the selected autossh instance (i.e. send a `SIGUSR1`, which is interpreted as a reload command by autossh).
 * `C`: Close the selected tunnel (i.e. send a `SIGTERM`).
 * `N`: Show the network connections related to each tunnel instances.
-* `Q`: Quit tunnelmon.
+* `Q`: Quit Tunnelmon.
 
 
 ## DISPLAY
