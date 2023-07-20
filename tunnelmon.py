@@ -36,6 +36,7 @@ import re
 import collections
 import itertools
 
+log_sensitive = False
 
 class Tunnel:
     def __init__(self, ssh_pid=None, in_port=None, via_host=None, target_host=None, out_port=None, forward=None):
@@ -167,14 +168,17 @@ class TunnelsParser:
         except TypeError:
             cmdline = cmd
 
-        logging.debug('autossh cmd line: %s', cmdline)
-        logging.debug('forwarding regexp: %s', self.re_forwarding)
+        if log_sensitive:
+            logging.debug("[SENSITIVE] autossh cmd line: %s", cmdline)
+        logging.debug("forwarding regexp: %s" % self.re_forwarding)
         match = self.re_forwarding.findall(cmdline)
-        logging.debug(match)
+        if log_sensitive:
+            logging.debug("[SENSITIVE] match: %s", match)
         if match:
             assert len(match) == 1
             forward, in_port, target_host, out_port = match[0]
-            logging.debug("matches: %s", match)
+            if log_sensitive:
+                logging.debug("[SENSITIVE] matches: %s", match)
         else:
             raise ValueError("is not a ssh tunnel")
 
@@ -184,7 +188,8 @@ class TunnelsParser:
         # FIXME this is an ugly hack
         i = 1
         while i < len(cmd):
-            logging.debug("ici: %i %s", i, cmd[i])
+            if log_sensitive:
+                logging.debug("[SENSITIVE] here: %i %s", i, cmd[i])
             if cmd[i][0] == '-':
                 if cmd[i][1] in '46AaCfGgKkMNnqsTtVvXxYy':
                     # flag without argument
@@ -214,12 +219,14 @@ class TunnelsParser:
                 pass
             else:
                 if process['name'] == 'ssh':
-                    logging.debug(process)
+                    if log_sensitive:
+                        logging.debug("[SENSITIVE] process: %s ", process)
                     try:
                         in_port, via_host, target_host, out_port, forward = self.parse(cmd)
                     except ValueError:
                         continue
-                    logging.debug("%s %s %s %s %s", in_port, via_host, target_host, out_port, forward)
+                    if log_sensitive:
+                        logging.debug("[SENSITIVE] parsed: %s %s %s %s %s", in_port, via_host, target_host, out_port, forward)
 
                     # Check if this ssh tunnel is managed by autossh.
                     parent = psutil.Process(process['ppid'])
@@ -233,17 +240,20 @@ class TunnelsParser:
                         self.tunnels[pid] = RawTunnel(pid, in_port, via_host, target_host, out_port, forward)
 
                     for c in process['connections']:
-                        logging.debug(c)
+                        if log_sensitive:
+                            logging.debug("[SENSITIVE] connection: %s", c)
                         laddr, lport = c.laddr
                         if c.raddr:
                             raddr, rport = c.raddr
                         else:
                             raddr, rport = (None, None)
                         connection = Connection(laddr, lport, raddr, rport, c.status, c.family)
-                        logging.debug(connection)
+                        if log_sensitive:
+                            logging.debug("[SENSITIVE] connection: %s", connection)
                         self.tunnels[pid].connections.append(connection)
 
-        logging.debug(self.tunnels)
+        if log_sensitive:
+            logging.debug("[SENSITIVE] %s", self.tunnels)
 
     def __repr__(self):
         reps = [self.header]
@@ -263,7 +273,7 @@ class CursesMonitor:
     def __init__(self, scr):
         # hide cursor
         curses.curs_set(0)
-        
+
         # curses screen
         self.scr = scr
 
@@ -344,14 +354,14 @@ class CursesMonitor:
 
     def do_Q(self):
         """Quit"""
-        logging.debug("Waited: %s" % self.log_ticks)
+        logging.debug("Waited: %s", self.log_ticks)
         self.log_ticks = ""
         logging.debug("Key pushed: Q")
         return False
 
     def do_R(self):
         """Reload autossh tunnel"""
-        logging.debug("Waited: %s" % self.log_ticks)
+        logging.debug("Waited: %s", self.log_ticks)
         self.log_ticks = ""
         logging.debug("Key pushed: R")
         # if a pid is selected
@@ -359,7 +369,8 @@ class CursesMonitor:
             # send the SIGUSR1 signal
             if type(self.tp.get_tunnel(self.cur_line)) == AutoTunnel:
                 # autossh performs a reload of existing tunnels that it manages
-                logging.debug("SIGUSR1 on PID: %i" % self.cur_pid)
+                if log_sensitive:
+                    logging.debug("[SENSITIVE] SIGUSR1 on PID: %i", self.cur_pid)
                 os.kill(self.cur_pid, signal.SIGUSR1)
             else:
                 logging.debug("Cannot reload a RAW tunnel")
@@ -367,7 +378,7 @@ class CursesMonitor:
 
     def do_C(self):
         """Close tunnel"""
-        logging.debug("Waited: %s" % self.log_ticks)
+        logging.debug("Waited: %s", self.log_ticks)
         self.log_ticks = ""
         logging.debug("Key pushed: C")
         if self.cur_pid != -1:
@@ -377,17 +388,21 @@ class CursesMonitor:
 
             tunnel = self.tp.get_tunnel(self.cur_line)
             if type(tunnel) == AutoTunnel:
-                logging.debug("SIGKILL on autossh PID: %i" % self.cur_pid)
+                if log_sensitive:
+                    logging.debug("[SENSITIVE] SIGKILL on autossh PID: %i", self.cur_pid)
                 try:
                     os.kill(self.cur_pid, signal.SIGKILL)
                 except OSError:
-                    logging.error("No such process: %i" % self.cur_pid)
+                    if log_sensitive:
+                        logging.error("[SENSITIVE] No such process: %i", self.cur_pid)
 
-            logging.debug("SIGKILL on ssh PID: %i" % tunnel.ssh_pid)
+            if log_sensitive:
+                logging.debug("[SENSITIVE] SIGKILL on ssh PID: %i", tunnel.ssh_pid)
             try:
                 os.kill(tunnel.ssh_pid, signal.SIGKILL)
             except OSError:
-                logging.error("No such process: %i" % tunnel.ssh_pid)
+                if log_sensitive:
+                    logging.error("[SENSITIVE] No such process: %i", tunnel.ssh_pid)
         self.cur_line -= 1
         self.cur_pid = -1
         # FIXME update cur_pid or get rid of it everywhere
@@ -395,7 +410,7 @@ class CursesMonitor:
 
     def do_N(self):
         """Show connections"""
-        logging.debug("Waited: %s" % self.log_ticks)
+        logging.debug("Waited: %s", self.log_ticks)
         self.log_ticks = ""
         logging.debug("Key pushed: N")
         self.show_connections = not self.show_connections
@@ -403,7 +418,7 @@ class CursesMonitor:
 
     def do_258(self):
         """Move down"""
-        logging.debug("Waited: %s" % self.log_ticks)
+        logging.debug("Waited: %s", self.log_ticks)
         self.log_ticks = ""
         logging.debug("Key pushed: down")
         # if not the end of the list
@@ -418,7 +433,7 @@ class CursesMonitor:
 
     def do_259(self):
         """Move up"""
-        logging.debug("Waited: %s" % self.log_ticks)
+        logging.debug("Waited: %s", self.log_ticks)
         self.log_ticks = ""
         logging.debug("Key pushed: up")
         if self.cur_line > -1:
@@ -457,10 +472,11 @@ class CursesMonitor:
 
                 state = "%s" % self.tp
                 if state != self.last_state:
-                    logging.debug("Waited: %s" % self.log_ticks)
+                    logging.debug("Waited: %s", self.log_ticks)
                     self.log_ticks = ""
-                    logging.debug("----- Time of screen update: %s -----" % time.time())
-                    logging.debug("State of tunnels:\n%s" % self.tp)
+                    logging.debug("----- Time of screen update: %s -----", time.time())
+                    if log_sensitive:
+                        logging.debug("[SENSITIVE] State of tunnels:\n%s", self.tp)
                     self.last_state = state
                 else:
                     self.log_ticks += "."
@@ -479,12 +495,12 @@ class CursesMonitor:
             # Call the do_* handler.
             fch = "do_%s" % ch.capitalize()
             fkc = "do_%i" % kc
-            logging.debug("key func: %s / %s" % (fch, fkc))
+            logging.debug("key func: %s / %s", fch, fkc)
             if fch in dir(self):
                 notquit = eval("self."+fch+"()")
             elif fkc in dir(self):
                 notquit = eval("self."+fkc+"()")
-            logging.debug("notquit = %s" % notquit)
+            logging.debug("notquit = %s", notquit)
 
             # update the display
             self.display()
@@ -495,15 +511,15 @@ class CursesMonitor:
         # end of the loop
 
     def format(self):
-        """Prepare formating strings to pad with spaces up to the tolumn header width."""
+        """Prepare formating strings to pad with spaces up to the column header width."""
         reps = [self.tp.tunnels[t].repr_tunnel() for t in self.tp.tunnels]
         tuns = [t.split() for t in reps]
         tuns.append(self.header)
         cols = itertools.zip_longest(*tuns, fillvalue='')
         widths = [max(len(s) for s in col) for col in cols]
-        logging.debug(widths)
+        logging.debug("Columns widths: %s", widths)
         fmt = ['{{: <{}}}'.format(w) for w in widths]
-        logging.debug(fmt)
+        logging.debug("Columns formats: %s", fmt)
         return fmt
 
     def display(self):
@@ -724,6 +740,10 @@ if __name__ == "__main__":
                       help="Log to this file, default to standard output. \
             If you use the curses interface, you may want to set this to actually see logs.")
 
+    parser.add_option("-s", "--log-sensitive",
+                      action="store_true", default=False,
+                      help="Do log sensitive informations (like hostnames, IPs and PIDs).")
+
     parser.add_option('-f', '--config-file', default=None, metavar='FILE',
                       help="Use this configuration file (default: '~/.tunnelmon.conf')")
 
@@ -735,7 +755,7 @@ if __name__ == "__main__":
         logfile = asked_for.log_file
         logging.basicConfig(filename=logfile, level=LOG_LEVELS[asked_for.log_level])
         logging.debug(logmsg)
-        logging.debug("Log in %s" % logfile)
+        logging.debug("Log in %s", logfile)
     else:
         if asked_for.curses:
             logging.warning("It's a bad idea to log to stdout while in the curses interface.")
@@ -743,7 +763,11 @@ if __name__ == "__main__":
         logging.debug(logmsg)
         logging.debug("Log to stdout")
 
-    logging.debug("Asked for: %s", asked_for)
+    logging.debug("Asked for: %s" % asked_for)
+
+    if asked_for.log_sensitive:
+        logging.debug("Asked for logging sensitive information.")
+        log_sensitive = True
 
     # unfortunately, asked_for class has no __len__ method in python 2.4.3 (bug?)
     # if len(asked_for) > 1:
@@ -813,7 +837,8 @@ if __name__ == "__main__":
         tp = TunnelsParser()
         tp.update()
         # do not call update() but only get connections
-        logging.debug("UID: %i.", os.geteuid())
+        if log_sensitive:
+            logging.debug("[SENSITIVE] UID: %i", os.geteuid())
         # if os.geteuid() == 0:
         for t in tp.tunnels:
             for c in tp.tunnels[t].connections:
